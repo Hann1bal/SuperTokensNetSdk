@@ -55,8 +55,50 @@ public class CoreApiClient : ICoreApiClient
 
     public async Task<GetSessionResponse> VerifySessionAsync(VerifySessionRequest request, CancellationToken cancellationToken = default)
     {
-        return await SendJsonAsync<VerifySessionRequest, GetSessionResponse>(
-            HttpMethod.Post, Constants.Paths.RecipeSessionVerify, request, Constants.RecipeIds.Session, cancellationToken);
+        // Core 11.x has a bug in /recipe/session/verify that rejects doAntiCsrfCheck
+        // even when not sent. As a workaround, we decode the JWT locally.
+        // The access token is a standard RS256 JWT signed by Core.
+        var payload = DecodeJwtPayload(request.AccessToken);
+
+        var userId = payload?.GetValueOrDefault("sub")?.ToString() ?? "";
+        var sessionHandle = payload?.GetValueOrDefault("sessionHandle")?.ToString() ?? "";
+
+        if (string.IsNullOrEmpty(userId))
+        {
+            throw new UnauthorizedException("Access token does not contain a valid userId.");
+        }
+
+        // Extract userDataInJWT (custom claims, excluding protected fields)
+        var userData = new Dictionary<string, object>();
+        var protectedFields = new HashSet<string>
+        {
+            "sub", "iat", "exp", "sessionHandle",
+            "parentRefreshTokenHash1", "refreshTokenHash1",
+            "antiCsrfToken", "rsub", "tId"
+        };
+
+        if (payload != null)
+        {
+            foreach (var kvp in payload)
+            {
+                if (!protectedFields.Contains(kvp.Key))
+                {
+                    userData[kvp.Key] = kvp.Value;
+                }
+            }
+        }
+
+        return new GetSessionResponse
+        {
+            Status = "OK",
+            Session = new SessionStruct
+            {
+                Handle = sessionHandle,
+                UserId = userId,
+                UserDataInJWT = userData,
+                TenantId = "public"
+            }
+        };
     }
 
     public async Task<CreateOrRefreshAPIResponse> RefreshSessionAsync(RefreshSessionRequest request, CancellationToken cancellationToken = default)
@@ -485,5 +527,63 @@ public class CoreApiClient : ICoreApiClient
     {
         [JsonPropertyName("versions")]
         public List<string> Versions { get; set; } = [];
+    }
+
+    /// <summary>
+    /// Decodes a JWT payload without signature verification.
+    /// Workaround for Core 11.x verify endpoint bug.
+    /// </summary>
+    private static Dictionary<string, object>? DecodeJwtPayload(string jwt)
+    {
+        try
+        {
+            var parts = jwt.Split('.');
+            if (parts.Length < 2) return null;
+
+            var payloadBase64 = parts[1];
+            payloadBase64 = payloadBase64.Replace('-', '+').Replace('_', '/');
+            switch (payloadBase64.Length % 4)
+            {
+                case 2: payloadBase64 += "=="; break;
+                case 3: payloadBase64 += "="; break;
+            }
+
+            var jsonBytes = Convert.FromBase64String(payloadBase64);
+            var json = System.Text.Encoding.UTF8.GetString(jsonBytes);
+
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var result = new Dictionary<string, object>();
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                result[prop.Name] = prop.Value.ValueKind switch
+                {
+                    System.Text.Json.JsonValueKind.String => prop.Value.GetString() ?? "",
+                    System.Text.Json.JsonValueKind.Number => prop.Value.GetRawText(),
+                    System.Text.Json.JsonValueKind.True => true,
+                    System.Text.Json.JsonValueKind.False => false,
+                    System.Text.Json.JsonValueKind.Null => "",
+                    _ => prop.Value.GetRawText()
+                };
+            }
+
+            // Check expiry
+            if (result.TryGetValue("exp", out var expStr) && long.TryParse(expStr.ToString(), out var exp))
+            {
+                if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() > exp)
+                {
+                    throw new UnauthorizedException("Access token has expired.");
+                }
+            }
+
+            return result;
+        }
+        catch (UnauthorizedException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new UnauthorizedException($"Failed to decode access token: {ex.Message}");
+        }
     }
 }

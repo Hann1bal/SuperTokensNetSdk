@@ -9,7 +9,7 @@ public static class Constants
     /// <summary>
     /// Supported CDI versions. Highest is preferred.
     /// </summary>
-    public static readonly string[] SupportedCdiVersions = ["3.1"];
+    public static readonly string[] SupportedCdiVersions = ["5.0"];
 
     /// <summary>
     /// Recipe IDs used in the rid header.
