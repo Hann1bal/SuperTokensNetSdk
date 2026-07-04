@@ -42,12 +42,20 @@ public class SuperTokensMiddleware
 
             try
             {
-                var verifyResult = await coreApiClient.VerifySessionAsync(new VerifySessionRequest
+                var verifyRequest = new VerifySessionRequest
                 {
                     AccessToken = accessToken,
-                    AntiCsrfToken = antiCsrfToken,
-                    DoAntiCsrfCheck = opts.EnableAntiCsrf && !string.IsNullOrEmpty(antiCsrfToken)
-                }, context.RequestAborted);
+                    DoAntiCsrfCheck = false,  // API clients (Bearer token) don't use anti-CSRF
+                };
+
+                // Only send antiCsrfToken for cookie-based sessions (browser clients)
+                if (opts.EnableAntiCsrf && !string.IsNullOrEmpty(antiCsrfToken))
+                {
+                    verifyRequest.AntiCsrfToken = antiCsrfToken;
+                    verifyRequest.DoAntiCsrfCheck = true;
+                }
+
+                var verifyResult = await coreApiClient.VerifySessionAsync(verifyRequest, context.RequestAborted);
 
                 if (!string.IsNullOrWhiteSpace(verifyResult.Session?.UserId))
                 {
