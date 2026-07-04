@@ -6,9 +6,11 @@ namespace SuperTokensSDK.Net.Configuration;
 public class SuperTokensOptions
 {
     /// <summary>
-    /// Base URI of the SuperTokens Core service (default: http://supertokens-core:3567).
+    /// Base URI(s) of the SuperTokens Core service.
+    /// Multiple hosts can be separated with a semicolon for round-robin and failover support.
+    /// Required — must be set by the consuming application.
     /// </summary>
-    public string? CoreUri { get; set; } = "http://supertokens-core:3567";
+    public string? CoreUri { get; set; }
 
     /// <summary>
     /// API key used to authenticate with SuperTokens Core.
@@ -17,16 +19,17 @@ public class SuperTokensOptions
 
     /// <summary>
     /// Application name used by SuperTokens Core.
+    /// Required — must be set by the consuming application.
     /// </summary>
-    public string? AppName { get; set; } = "HistoneDB";
+    public string? AppName { get; set; }
 
     /// <summary>
-    /// Connection URI for the frontend (API domain) used by the SDK.
+    /// Connection URI for the frontend (API domain) used during CDI version negotiation.
     /// </summary>
     public string? ApiDomain { get; set; }
 
     /// <summary>
-    /// Website domain used by the SDK for cookie/CSRF handling.
+    /// Website domain used by the SDK for cookie/CSRF handling and CDI version negotiation.
     /// </summary>
     public string? WebsiteDomain { get; set; }
 

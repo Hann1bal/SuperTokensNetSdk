@@ -16,8 +16,8 @@ using SuperTokensSDK.Net.Recipes.UserRoles;
 namespace SuperTokensSDK.Net.AspNetCore;
 
 /// <summary>
-/// FIX: middleware operates on HttpContext, not HttpContent.
 /// Validates SuperTokens session and sets HttpContext.User.
+/// Uses typed SuperTokens exceptions to decide whether to continue anonymously.
 /// </summary>
 public class SuperTokensMiddleware
 {
@@ -38,7 +38,7 @@ public class SuperTokensMiddleware
         if (!string.IsNullOrWhiteSpace(accessToken))
         {
             var antiCsrfToken = context.Request.Cookies[opts.AntiCsrfCookieName]
-                ?? context.Request.Headers["anti-csrf"].FirstOrDefault();
+                ?? context.Request.Headers[Core.Constants.HeaderNames.AntiCsrf].FirstOrDefault();
 
             try
             {
@@ -59,9 +59,26 @@ public class SuperTokensMiddleware
 
                 if (!string.IsNullOrWhiteSpace(verifyResult.Session?.UserId))
                 {
-                    var identity = CreateClaimsIdentity(verifyResult.Session.UserId, verifyResult.Session.UserDataInJwt);
+                    var identity = CreateClaimsIdentity(verifyResult.Session.UserId, verifyResult.Session.UserDataInJWT);
                     context.User = new ClaimsPrincipal(identity);
                 }
+            }
+            catch (UnauthorizedException)
+            {
+                _logger.LogDebug("SuperTokens middleware: session is unauthorised.");
+            }
+            catch (TryRefreshTokenException)
+            {
+                _logger.LogDebug("SuperTokens middleware: access token expired, refresh required.");
+            }
+            catch (TokenTheftDetectedException ex)
+            {
+                _logger.LogWarning("SuperTokens middleware: token theft detected for user {UserId}.", ex.UserId);
+            }
+            catch (InvalidClaimException ex)
+            {
+                _logger.LogDebug("SuperTokens middleware: invalid claims detected: {Claims}",
+                    string.Join(", ", ex.InvalidClaims.Select(c => c.Id)));
             }
             catch (Exception ex)
             {
@@ -128,8 +145,6 @@ public static class SuperTokensExtensions
         services.Configure(configure);
         services.AddHttpClient<ICoreApiClient, CoreApiClient>((provider, client) =>
         {
-            var opts = provider.GetRequiredService<IOptions<SuperTokensOptions>>().Value;
-            client.BaseAddress = new Uri(opts.CoreUri ?? "http://supertokens-core:3567");
             client.Timeout = TimeSpan.FromSeconds(30);
         });
         services.AddScoped<SessionRecipe>();

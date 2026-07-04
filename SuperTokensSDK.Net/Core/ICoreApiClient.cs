@@ -7,9 +7,9 @@ namespace SuperTokensSDK.Net.Core;
 /// </summary>
 public interface ICoreApiClient
 {
-    Task<CreateSessionResponse> CreateSessionAsync(CreateSessionRequest request, CancellationToken cancellationToken = default);
-    Task<VerifySessionResponse> VerifySessionAsync(VerifySessionRequest request, CancellationToken cancellationToken = default);
-    Task<RefreshSessionCoreResponse> RefreshSessionAsync(RefreshSessionRequest request, CancellationToken cancellationToken = default);
+    Task<CreateOrRefreshAPIResponse> CreateSessionAsync(CreateSessionRequest request, CancellationToken cancellationToken = default);
+    Task<GetSessionResponse> VerifySessionAsync(VerifySessionRequest request, CancellationToken cancellationToken = default);
+    Task<CreateOrRefreshAPIResponse> RefreshSessionAsync(RefreshSessionRequest request, CancellationToken cancellationToken = default);
     Task<RevokeSessionResponse> RevokeSessionAsync(RevokeSessionRequest request, CancellationToken cancellationToken = default);
     Task<SignUpResponse> SignUpAsync(SignUpRequest request, CancellationToken cancellationToken = default);
     Task<SignUpResponse> SignInAsync(SignUpRequest request, CancellationToken cancellationToken = default);

@@ -15,7 +15,11 @@ public class SessionRecipe
         _coreApiClient = coreApiClient ?? throw new ArgumentNullException(nameof(coreApiClient));
     }
 
-    public async Task<SessionContainer> CreateSessionAsync(string userId, Dictionary<string, object>? accessTokenPayload = null, Dictionary<string, object>? sessionData = null, CancellationToken cancellationToken = default)
+    public async Task<SessionContainer> CreateSessionAsync(
+        string userId,
+        Dictionary<string, object>? accessTokenPayload = null,
+        Dictionary<string, object>? sessionData = null,
+        CancellationToken cancellationToken = default)
     {
         var response = await _coreApiClient.CreateSessionAsync(new CreateSessionRequest
         {
@@ -24,17 +28,7 @@ public class SessionRecipe
             SessionData = sessionData
         }, cancellationToken);
 
-        return new SessionContainer
-        {
-            SessionHandle = response.Session?.Handle ?? "",
-            UserId = response.Session?.UserId ?? userId,
-            AccessToken = response.AccessToken?.Token,
-            RefreshToken = response.RefreshToken?.Token,
-            FrontToken = response.FrontToken,
-            AccessTokenExpiry = ConvertExpiryToDateTime(response.AccessToken?.Expiry),
-            RefreshTokenExpiry = ConvertExpiryToDateTime(response.RefreshToken?.Expiry),
-            UserDataInJwt = response.Session?.UserDataInJwt ?? new Dictionary<string, object>()
-        };
+        return CreateContainer(response);
     }
 
     public async Task<SessionContainer> VerifySessionAsync(string accessToken, string? antiCsrfToken = null, CancellationToken cancellationToken = default)
@@ -46,11 +40,17 @@ public class SessionRecipe
             DoAntiCsrfCheck = !string.IsNullOrEmpty(antiCsrfToken)
         }, cancellationToken);
 
-        return new SessionContainer
+        if (response.Session == null)
         {
-            SessionHandle = response.Session?.Handle ?? "",
-            UserId = response.Session?.UserId ?? response.UserId ?? "",
-            UserDataInJwt = response.Session?.UserDataInJwt ?? response.UserDataInJwt ?? new Dictionary<string, object>()
+            throw new UnauthorizedException("Session verification did not return a session.");
+        }
+
+        return new SessionContainer(
+            response.Session.Handle,
+            response.Session.UserId,
+            response.Session.UserDataInJWT)
+        {
+            AccessToken = response.AccessToken?.Token
         };
     }
 
@@ -63,22 +63,27 @@ public class SessionRecipe
             EnableAntiCsrf = !string.IsNullOrEmpty(antiCsrfToken)
         }, cancellationToken);
 
-        return new SessionContainer
-        {
-            SessionHandle = response.Session?.Handle ?? "",
-            UserId = response.Session?.UserId ?? "",
-            AccessToken = response.AccessToken?.Token,
-            RefreshToken = response.RefreshToken?.Token,
-            FrontToken = response.FrontToken,
-            AccessTokenExpiry = ConvertExpiryToDateTime(response.AccessToken?.Expiry),
-            RefreshTokenExpiry = ConvertExpiryToDateTime(response.RefreshToken?.Expiry),
-            UserDataInJwt = response.Session?.UserDataInJwt ?? new Dictionary<string, object>()
-        };
+        return CreateContainer(response);
     }
 
     public async Task RevokeSessionAsync(string sessionHandle, CancellationToken cancellationToken = default)
     {
         await _coreApiClient.RevokeSessionAsync(new RevokeSessionRequest { SessionHandle = sessionHandle }, cancellationToken);
+    }
+
+    private static SessionContainer CreateContainer(CreateOrRefreshAPIResponse response)
+    {
+        return new SessionContainer(
+            response.Session.Handle,
+            response.Session.UserId,
+            response.Session.UserDataInJWT)
+        {
+            AccessToken = response.AccessToken?.Token,
+            RefreshToken = response.RefreshToken?.Token,
+            AntiCsrfToken = response.AntiCsrfToken,
+            AccessTokenExpiry = ConvertExpiryToDateTime(response.AccessToken?.Expiry),
+            RefreshTokenExpiry = ConvertExpiryToDateTime(response.RefreshToken?.Expiry)
+        };
     }
 
     private static DateTime ConvertExpiryToDateTime(long? expiryMs)

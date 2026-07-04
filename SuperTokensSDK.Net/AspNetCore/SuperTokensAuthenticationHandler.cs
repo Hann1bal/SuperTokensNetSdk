@@ -33,34 +33,34 @@ public class SuperTokensAuthenticationHandler : AuthenticationHandler<SuperToken
             return AuthenticateResult.Fail("No access token provided.");
         }
 
-        var antiCsrfToken = Context.Request.Cookies[Options.AntiCsrfCookieName]
-            ?? Context.Request.Headers["anti-csrf"].FirstOrDefault();
+            var antiCsrfToken = Context.Request.Cookies[Options.AntiCsrfCookieName]
+                ?? Context.Request.Headers[Core.Constants.HeaderNames.AntiCsrf].FirstOrDefault();
 
-        try
-        {
-            var verifyResult = await _coreApiClient.VerifySessionAsync(new VerifySessionRequest
+            try
             {
-                AccessToken = accessToken,
-                AntiCsrfToken = antiCsrfToken,
-                DoAntiCsrfCheck = !string.IsNullOrEmpty(antiCsrfToken)
-            }, Context.RequestAborted);
+                var verifyResult = await _coreApiClient.VerifySessionAsync(new VerifySessionRequest
+                {
+                    AccessToken = accessToken,
+                    AntiCsrfToken = antiCsrfToken,
+                    DoAntiCsrfCheck = !string.IsNullOrEmpty(antiCsrfToken)
+                }, Context.RequestAborted);
 
-            if (string.IsNullOrWhiteSpace(verifyResult.Session?.UserId))
-            {
-                return AuthenticateResult.Fail("Session verification did not return a user ID.");
+                if (string.IsNullOrWhiteSpace(verifyResult.Session?.UserId))
+                {
+                    return AuthenticateResult.Fail("Session verification did not return a user ID.");
+                }
+
+                var identity = CreateClaimsIdentity(verifyResult.Session.UserId, verifyResult.Session.UserDataInJWT);
+                var principal = new ClaimsPrincipal(identity);
+                var ticket = new AuthenticationTicket(principal, Scheme.Name);
+
+                return AuthenticateResult.Success(ticket);
             }
-
-            var identity = CreateClaimsIdentity(verifyResult.Session.UserId, verifyResult.Session.UserDataInJwt);
-            var principal = new ClaimsPrincipal(identity);
-            var ticket = new AuthenticationTicket(principal, Scheme.Name);
-
-            return AuthenticateResult.Success(ticket);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogDebug(ex, "SuperTokens session verification failed.");
-            return AuthenticateResult.Fail("Invalid or expired session.");
-        }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "SuperTokens session verification failed.");
+                return AuthenticateResult.Fail("Invalid or expired session.");
+            }
     }
 
     private string? ExtractAccessToken()
