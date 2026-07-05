@@ -25,6 +25,27 @@ public static class Constants
         public const string EmailVerification = "emailverification";
         public const string Jwt = "jwt";
         public const string Multitenancy = "multitenancy";
+        public const string ThirdParty = "thirdparty";
+        public const string Dashboard = "dashboard";
+    }
+
+    /// <summary>
+    /// Dashboard recipe CDI paths.
+    /// </summary>
+    public static class DashboardPaths
+    {
+        public const string RecipeDashboardSessionVerify = "/recipe/dashboard/session/verify";
+        public const string Users = "/users";
+        public const string UsersCount = "/users/count";
+        public const string UserRemove = "/user/remove";
+        public const string TenantsList = "/tenants/list";
+        public const string UserDetails = "/user";
+        public const string UserEmailVerify = "/user/email/verify";
+        public const string UserPassword = "/user/password";
+        public const string UserMetadata = "/user/metadata";
+        public const string UserSessions = "/user/sessions";
+        public const string SearchTags = "/search/tags";
+        public const string Analytics = "/analytics";
     }
 
     /// <summary>
@@ -71,6 +92,15 @@ public static class Constants
         public const string RecipeSigninupCodeCheck = "/recipe/signinup/code/check";
         public const string RecipeSigninupCodes = "/recipe/signinup/codes";
         public const string RecipeSigninupCodesRemove = "/recipe/signinup/codes/remove";
+    }
+
+    /// <summary>
+    /// ThirdParty recipe CDI paths.
+    /// </summary>
+    public static class ThirdPartyPaths
+    {
+        public const string RecipeSigninup = "/recipe/signinup";
+        public const string RecipeUsersByEmail = "/recipe/users/by-email";
     }
 
     /// <summary>

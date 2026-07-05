@@ -498,6 +498,142 @@ public class CoreApiClient : ICoreApiClient
             HttpMethod.Post, "/user/remove", request, null, cancellationToken);
     }
 
+    public async Task<SignInUpResponse> ThirdPartySignInUpAsync(SignInUpRequest request, string tenantId = "public", CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<SignInUpRequest, SignInUpResponse>(
+            HttpMethod.Post, $"{tenantId}{Constants.ThirdPartyPaths.RecipeSigninup}", request, Constants.RecipeIds.ThirdParty, cancellationToken);
+    }
+
+    public async Task<ManuallyCreateOrUpdateUserResponse> ManuallyCreateOrUpdateThirdPartyUserAsync(ManuallyCreateOrUpdateUserRequest request, string tenantId = "public", CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<ManuallyCreateOrUpdateUserRequest, ManuallyCreateOrUpdateUserResponse>(
+            HttpMethod.Post, $"{tenantId}{Constants.ThirdPartyPaths.RecipeSigninup}", request, Constants.RecipeIds.ThirdParty, cancellationToken);
+    }
+
+    public async Task<ThirdPartyUser?> GetThirdPartyUserByIdAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
+        query["userId"] = userId;
+        return await GetJsonAsync<ThirdPartyUser>(
+            $"/recipe/user?{query}", Constants.RecipeIds.ThirdParty, cancellationToken);
+    }
+
+    public async Task<ThirdPartyUser?> GetThirdPartyUserByThirdPartyInfoAsync(ThirdPartyInfo info, string tenantId = "public", CancellationToken cancellationToken = default)
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
+        query["thirdPartyId"] = info.ThirdPartyId;
+        query["thirdPartyUserId"] = info.ThirdPartyUserId;
+        return await GetJsonAsync<ThirdPartyUser>(
+            $"{tenantId}{Constants.ThirdPartyPaths.RecipeSigninup}?{query}", Constants.RecipeIds.ThirdParty, cancellationToken);
+    }
+
+    public async Task<GetUsersByEmailResponse> GetThirdPartyUsersByEmailAsync(string email, string tenantId = "public", CancellationToken cancellationToken = default)
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
+        query["email"] = email;
+        return await GetJsonAsync<GetUsersByEmailResponse>(
+            $"{tenantId}{Constants.ThirdPartyPaths.RecipeUsersByEmail}?{query}", Constants.RecipeIds.ThirdParty, cancellationToken);
+    }
+
+    public async Task<DashboardSignInResponse> DashboardSignInAsync(string apiKey, CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<DashboardSignInRequest, DashboardSignInResponse>(
+            HttpMethod.Post, Constants.DashboardPaths.RecipeDashboardSessionVerify, new DashboardSignInRequest { ApiKey = apiKey }, Constants.RecipeIds.Dashboard, cancellationToken);
+    }
+
+    public async Task<DashboardSignOutResponse> DashboardSignOutAsync(CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<DashboardSignInRequest, DashboardSignOutResponse>(
+            HttpMethod.Post, Constants.DashboardPaths.RecipeDashboardSessionVerify, new DashboardSignInRequest { ApiKey = null! }, Constants.RecipeIds.Dashboard, cancellationToken);
+    }
+
+    public async Task<DashboardUsersResponse> DashboardGetUsersAsync(int? limit = null, string? paginationToken = null, string timeJoinedOrder = "DESC", CancellationToken cancellationToken = default)
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
+        if (limit.HasValue)
+        {
+            query["limit"] = limit.Value.ToString();
+        }
+        query["timeJoinedOrder"] = timeJoinedOrder;
+        if (!string.IsNullOrEmpty(paginationToken))
+        {
+            query["paginationToken"] = paginationToken;
+        }
+        return await GetJsonAsync<DashboardUsersResponse>(
+            $"{Constants.DashboardPaths.Users}?{query}", Constants.RecipeIds.Dashboard, cancellationToken);
+    }
+
+    public async Task<DashboardUsersCountResponse> DashboardGetUsersCountAsync(CancellationToken cancellationToken = default)
+    {
+        return await GetJsonAsync<DashboardUsersCountResponse>(
+            Constants.DashboardPaths.UsersCount, Constants.RecipeIds.Dashboard, cancellationToken);
+    }
+
+    public async Task<DashboardTenantsListResponse> DashboardListTenantsAsync(CancellationToken cancellationToken = default)
+    {
+        return await GetJsonAsync<DashboardTenantsListResponse>(
+            Constants.DashboardPaths.TenantsList, Constants.RecipeIds.Dashboard, cancellationToken);
+    }
+
+    public async Task<DashboardUserDetailsResponse> DashboardGetUserDetailsAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
+        query["userId"] = userId;
+        return await GetJsonAsync<DashboardUserDetailsResponse>(
+            $"{Constants.DashboardPaths.UserDetails}?{query}", Constants.RecipeIds.Dashboard, cancellationToken);
+    }
+
+    public async Task<DashboardSignOutResponse> DashboardDeleteUserAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<DashboardUserDetailsRequest, DashboardSignOutResponse>(
+            HttpMethod.Post, Constants.DashboardPaths.UserRemove, new DashboardUserDetailsRequest { UserId = userId }, Constants.RecipeIds.Dashboard, cancellationToken);
+    }
+
+    public async Task<DashboardSignOutResponse> DashboardVerifyUserEmailAsync(string userId, string? email, bool verified, CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<DashboardUserEmailVerifyRequest, DashboardSignOutResponse>(
+            HttpMethod.Post, Constants.DashboardPaths.UserEmailVerify, new DashboardUserEmailVerifyRequest { UserId = userId, Email = email, Verified = verified }, Constants.RecipeIds.Dashboard, cancellationToken);
+    }
+
+    public async Task<DashboardSignOutResponse> DashboardUpdateUserPasswordAsync(string userId, string newPassword, CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<DashboardUserPasswordRequest, DashboardSignOutResponse>(
+            HttpMethod.Post, Constants.DashboardPaths.UserPassword, new DashboardUserPasswordRequest { UserId = userId, NewPassword = newPassword }, Constants.RecipeIds.Dashboard, cancellationToken);
+    }
+
+    public async Task<DashboardSignOutResponse> DashboardUpdateUserMetadataAsync(string userId, Dictionary<string, object> metadata, CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<DashboardUserMetadataRequest, DashboardSignOutResponse>(
+            HttpMethod.Put, Constants.DashboardPaths.UserMetadata, new DashboardUserMetadataRequest { UserId = userId, Metadata = metadata }, Constants.RecipeIds.Dashboard, cancellationToken);
+    }
+
+    public async Task<DashboardUserSessionsResponse> DashboardGetUserSessionsAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
+        query["userId"] = userId;
+        return await GetJsonAsync<DashboardUserSessionsResponse>(
+            $"{Constants.DashboardPaths.UserSessions}?{query}", Constants.RecipeIds.Dashboard, cancellationToken);
+    }
+
+    public async Task<DashboardSearchTagsResponse> DashboardSearchTagsAsync(string query, CancellationToken cancellationToken = default)
+    {
+        var qs = System.Web.HttpUtility.ParseQueryString(string.Empty);
+        qs["q"] = query;
+        return await GetJsonAsync<DashboardSearchTagsResponse>(
+            $"{Constants.DashboardPaths.SearchTags}?{qs}", Constants.RecipeIds.Dashboard, cancellationToken);
+    }
+
+    public async Task<DashboardAnalyticsResponse> DashboardGetAnalyticsAsync(CancellationToken cancellationToken = default)
+    {
+        return await GetJsonAsync<DashboardAnalyticsResponse>(
+            Constants.DashboardPaths.Analytics, Constants.RecipeIds.Dashboard, cancellationToken);
+    }
+
+    public async Task<HttpResponseMessage> ProxyToCoreAsync(string method, string path, string? body, string recipeId, CancellationToken cancellationToken = default)
+    {
+        return await SendWithRetryAsync(new HttpMethod(method), path, body, recipeId, cancellationToken);
+    }
+
     #endregion
 
     #region HTTP helpers

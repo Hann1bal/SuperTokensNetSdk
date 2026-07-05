@@ -3,17 +3,22 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SuperTokensSDK.Net.Configuration;
 using SuperTokensSDK.Net.Core;
 using SuperTokensSDK.Net.Core.Models;
+using SuperTokensSDK.Net.Ingredients.EmailDelivery;
+using SuperTokensSDK.Net.Ingredients.SmsDelivery;
+using SuperTokensSDK.Net.Recipes.Dashboard;
 using SuperTokensSDK.Net.Recipes.EmailPassword;
 using SuperTokensSDK.Net.Recipes.EmailVerification;
 using SuperTokensSDK.Net.Recipes.Jwt;
 using SuperTokensSDK.Net.Recipes.Multitenancy;
 using SuperTokensSDK.Net.Recipes.Passwordless;
 using SuperTokensSDK.Net.Recipes.Session;
+using SuperTokensSDK.Net.Recipes.ThirdParty;
 using SuperTokensSDK.Net.Recipes.Totp;
 using SuperTokensSDK.Net.Recipes.UserManagement;
 using SuperTokensSDK.Net.Recipes.UserMetadata;
@@ -175,6 +180,15 @@ public static class SuperTokensExtensions
         services.AddScoped<EmailVerificationRecipe>();
         services.AddScoped<JwtRecipe>();
         services.AddScoped<MultitenancyRecipe>();
+        services.AddScoped<DashboardRecipe>();
+        services.AddScoped<ThirdPartyRecipe>();
+
+        services.AddScoped<EmailPasswordOverrides>();
+        services.AddScoped<SessionOverrides>();
+        services.AddScoped<PasswordlessOverrides>();
+
+        services.TryAddScoped<IEmailDelivery, SmtpEmailDelivery>();
+        services.TryAddScoped<ISmsDelivery, TwilioSmsDelivery>();
         return services;
     }
 

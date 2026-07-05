@@ -7,7 +7,7 @@ namespace SuperTokensSDK.Net.Recipes.Session;
 /// <summary>
 /// SuperTokens Session recipe operations.
 /// </summary>
-public class SessionRecipe
+public class SessionRecipe : IOverridableRecipe
 {
     private readonly ICoreApiClient _coreApiClient;
 
@@ -16,12 +16,23 @@ public class SessionRecipe
         _coreApiClient = coreApiClient ?? throw new ArgumentNullException(nameof(coreApiClient));
     }
 
+    public SessionOverrides? Overrides { get; set; }
+
+    RecipeOverrides? IOverridableRecipe.Overrides
+    {
+        get => Overrides;
+        set => Overrides = (SessionOverrides?)value;
+    }
+
     public async Task<SessionContainer> CreateSessionAsync(
         string userId,
         Dictionary<string, object>? accessTokenPayload = null,
         Dictionary<string, object>? sessionData = null,
         CancellationToken cancellationToken = default)
     {
+        if (Overrides?.CreateSession != null)
+            return await Overrides.CreateSession(userId, accessTokenPayload, sessionData, cancellationToken);
+
         var response = await _coreApiClient.CreateSessionAsync(new CreateSessionRequest
         {
             UserId = userId,
@@ -35,6 +46,9 @@ public class SessionRecipe
 
     public async Task<SessionContainer> VerifySessionAsync(string accessToken, string? antiCsrfToken = null, CancellationToken cancellationToken = default)
     {
+        if (Overrides?.VerifySession != null)
+            return await Overrides.VerifySession(accessToken, antiCsrfToken, cancellationToken);
+
         var response = await _coreApiClient.VerifySessionAsync(new VerifySessionRequest
         {
             AccessToken = accessToken,
@@ -58,6 +72,9 @@ public class SessionRecipe
 
     public async Task<SessionContainer> RefreshSessionAsync(string refreshToken, string? antiCsrfToken = null, CancellationToken cancellationToken = default)
     {
+        if (Overrides?.RefreshSession != null)
+            return await Overrides.RefreshSession(refreshToken, antiCsrfToken, cancellationToken);
+
         var response = await _coreApiClient.RefreshSessionAsync(new RefreshSessionRequest
         {
             RefreshToken = refreshToken,
@@ -70,6 +87,9 @@ public class SessionRecipe
 
     public async Task<List<SessionInfo>> GetActiveSessionsAsync(string userId, string tenantId = "public", CancellationToken ct = default)
     {
+        if (Overrides?.GetActiveSessions != null)
+            return await Overrides.GetActiveSessions(userId, tenantId, ct);
+
         var handles = await _coreApiClient.GetAllSessionHandlesForUserAsync(userId, tenantId, false, ct);
         var sessions = new List<SessionInfo>();
         foreach (var handle in handles)
@@ -88,6 +108,9 @@ public class SessionRecipe
 
     public async Task<bool> RevokeSessionAsync(string sessionHandle, CancellationToken ct = default)
     {
+        if (Overrides?.RevokeSession != null)
+            return await Overrides.RevokeSession(sessionHandle, ct);
+
         var revoked = await _coreApiClient.RevokeMultipleSessionsAsync(new List<string> { sessionHandle }, ct);
         return revoked.Contains(sessionHandle);
     }

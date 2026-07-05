@@ -3,7 +3,7 @@ using SuperTokensSDK.Net.Core.Models;
 
 namespace SuperTokensSDK.Net.Recipes.Passwordless;
 
-public class PasswordlessRecipe
+public class PasswordlessRecipe : IOverridableRecipe
 {
     private readonly ICoreApiClient _coreApiClient;
 
@@ -12,8 +12,19 @@ public class PasswordlessRecipe
         _coreApiClient = coreApiClient ?? throw new ArgumentNullException(nameof(coreApiClient));
     }
 
+    public PasswordlessOverrides? Overrides { get; set; }
+
+    RecipeOverrides? IOverridableRecipe.Overrides
+    {
+        get => Overrides;
+        set => Overrides = (PasswordlessOverrides?)value;
+    }
+
     public async Task<(string deviceId, string preAuthSessionId, string linkCode)> CreateCodeAsync(string? email = null, string? phoneNumber = null, string? deviceId = null, string tenantId = "public", CancellationToken ct = default)
     {
+        if (Overrides?.CreateCode != null)
+            return await Overrides.CreateCode(email, phoneNumber, deviceId, tenantId, ct);
+
         var response = await _coreApiClient.CreatePasswordlessCodeAsync(
             new CreateCodeRequest { Email = email, PhoneNumber = phoneNumber, DeviceId = deviceId }, tenantId, ct);
         if (response.Status != "OK")
@@ -23,6 +34,9 @@ public class PasswordlessRecipe
 
     public async Task<PasswordlessUser> ConsumeCodeAsync(string preAuthSessionId, string? linkCode = null, string? deviceId = null, string? userInputCode = null, string tenantId = "public", CancellationToken ct = default)
     {
+        if (Overrides?.ConsumeCode != null)
+            return await Overrides.ConsumeCode(preAuthSessionId, linkCode, deviceId, userInputCode, tenantId, ct);
+
         var response = await _coreApiClient.ConsumePasswordlessCodeAsync(
             new ConsumeCodeRequest { PreAuthSessionId = preAuthSessionId, LinkCode = linkCode, DeviceId = deviceId, UserInputCode = userInputCode }, tenantId, ct);
         if (response.Status != "OK")

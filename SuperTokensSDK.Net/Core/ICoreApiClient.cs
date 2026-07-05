@@ -64,6 +64,13 @@ public interface ICoreApiClient
     Task<AssociateUserResponse> AssociateUserToTenantAsync(string tenantId, string userId, CancellationToken cancellationToken = default);
     Task<bool> DisassociateUserFromTenantAsync(string tenantId, string userId, CancellationToken cancellationToken = default);
 
+    // ThirdParty recipe
+    Task<SignInUpResponse> ThirdPartySignInUpAsync(SignInUpRequest request, string tenantId = "public", CancellationToken cancellationToken = default);
+    Task<ManuallyCreateOrUpdateUserResponse> ManuallyCreateOrUpdateThirdPartyUserAsync(ManuallyCreateOrUpdateUserRequest request, string tenantId = "public", CancellationToken cancellationToken = default);
+    Task<ThirdPartyUser?> GetThirdPartyUserByIdAsync(string userId, CancellationToken cancellationToken = default);
+    Task<ThirdPartyUser?> GetThirdPartyUserByThirdPartyInfoAsync(ThirdPartyInfo info, string tenantId = "public", CancellationToken cancellationToken = default);
+    Task<GetUsersByEmailResponse> GetThirdPartyUsersByEmailAsync(string email, string tenantId = "public", CancellationToken cancellationToken = default);
+
     // Session management
     Task<List<string>> GetAllSessionHandlesForUserAsync(string userId, string tenantId = "public", bool fetchAcrossAllTenants = false, CancellationToken cancellationToken = default);
     Task<SessionInfo?> GetSessionInformationAsync(string sessionHandle, CancellationToken cancellationToken = default);
@@ -74,4 +81,25 @@ public interface ICoreApiClient
     Task<UserListResponse> GetUsersAsync(int limit = 100, string? paginationToken = null, string timeJoinedOrder = "DESC", CancellationToken cancellationToken = default);
     Task<UserCountResponse> GetUserCountAsync(CancellationToken cancellationToken = default);
     Task<StatusResponse> DeleteUserAsync(DeleteUserRequest request, CancellationToken cancellationToken = default);
+
+    // Dashboard recipe
+    Task<DashboardSignInResponse> DashboardSignInAsync(string apiKey, CancellationToken cancellationToken = default);
+    Task<DashboardSignOutResponse> DashboardSignOutAsync(CancellationToken cancellationToken = default);
+    Task<DashboardUsersResponse> DashboardGetUsersAsync(int? limit = null, string? paginationToken = null, string timeJoinedOrder = "DESC", CancellationToken cancellationToken = default);
+    Task<DashboardUsersCountResponse> DashboardGetUsersCountAsync(CancellationToken cancellationToken = default);
+    Task<DashboardTenantsListResponse> DashboardListTenantsAsync(CancellationToken cancellationToken = default);
+    Task<DashboardUserDetailsResponse> DashboardGetUserDetailsAsync(string userId, CancellationToken cancellationToken = default);
+    Task<DashboardSignOutResponse> DashboardDeleteUserAsync(string userId, CancellationToken cancellationToken = default);
+    Task<DashboardSignOutResponse> DashboardVerifyUserEmailAsync(string userId, string? email, bool verified, CancellationToken cancellationToken = default);
+    Task<DashboardSignOutResponse> DashboardUpdateUserPasswordAsync(string userId, string newPassword, CancellationToken cancellationToken = default);
+    Task<DashboardSignOutResponse> DashboardUpdateUserMetadataAsync(string userId, Dictionary<string, object> metadata, CancellationToken cancellationToken = default);
+    Task<DashboardUserSessionsResponse> DashboardGetUserSessionsAsync(string userId, CancellationToken cancellationToken = default);
+    Task<DashboardSearchTagsResponse> DashboardSearchTagsAsync(string query, CancellationToken cancellationToken = default);
+    Task<DashboardAnalyticsResponse> DashboardGetAnalyticsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Proxies a raw request to SuperTokens Core without deserializing the response.
+    /// Used by the API middleware to forward frontend /auth calls to the CDI.
+    /// </summary>
+    Task<HttpResponseMessage> ProxyToCoreAsync(string method, string path, string? body, string recipeId, CancellationToken cancellationToken = default);
 }

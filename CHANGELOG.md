@@ -15,3 +15,8 @@ All notable changes to SuperTokensSDK.Net will be documented in this file.
 - New CDI helper `CoreApiClient.UpdateJwtDataAsync` for mutating the access token payload.
 - `SuperTokensExtensions` registers `JwksClient` in DI and wires it into `CoreApiClient`.
 - Updated `CoreApiClientTests` and `SessionRecipeTests` to exercise the JWKS verification path; `SuperTokensAuthenticationHandlerTests` now use a mocked `ICoreApiClient` for deterministic behavior.
+- Added `SuperTokensApiMiddleware` with `app.UseSuperTokensApi()` to proxy `/auth/*` frontend API calls to SuperTokens Core CDI endpoints, plus CORS preflight support.
+- Added overridable recipe pattern: `RecipeOverrides`, `IOverridableRecipe`, and per-recipe override classes (`EmailPasswordOverrides`, `SessionOverrides`, `PasswordlessOverrides`, `ThirdPartyOverrides`) allowing nullable delegate replacements for recipe methods.
+- Added `ICoreApiClient.ProxyToCoreAsync` and `CoreApiClient.ProxyToCoreAsync` for raw request forwarding.
+- Registered override classes as scoped services in `SuperTokensExtensions`.
+- Added tests: `SuperTokensApiMiddlewareTests` and `RecipeOverridesTests`.
