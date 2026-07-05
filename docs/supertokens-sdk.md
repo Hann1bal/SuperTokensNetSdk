@@ -14,6 +14,14 @@ SuperTokensSDK.Net is a CDI 5.0 client for the SuperTokens Core service, built f
 4. **MCP gateway** exposes five SuperTokens operations as Model Context Protocol tool definitions.
 
 The SDK follows the SuperTokens recipe pattern. Each recipe is a scoped service that depends on `ICoreApiClient`. You inject recipes into your controllers and endpoints directly.
+## Links
+- [Getting Started](./getting-started.md): Quick start guide with 5-minute setup
+- [Integrations](./auth-integration.md): ASP.NET Core authentication handler, middleware, claims transformation, dual auth setup
+- [Recipes](./recipes.md): Full reference for session creation, verification, and revocation
+- [Configuration](./configuration.md): All options for cookies, anti-CSRF, and Core connection
+- [Migration](./migration.md): How to migrate from JWT tokens to SuperTokens cookies
+- [Examples](./examples.md): Example 7 shows a complete Identity bridge
+- [Troubleshooting](./troubleshooting.md): Common auth integration errors
 
 ## Installation
 
@@ -1038,4 +1046,5 @@ app.UseExceptionHandler(app =>
         await context.Response.WriteAsync(exception?.Message ?? "An error occurred.");
     });
 });
+
 ```
