@@ -1,3 +1,14 @@
+> **Warning: Work in Progress**
+>
+> This SDK is under active development and has not been audited or certified by SuperTokens.
+> While unit tests cover many code paths, the SDK has not been tested against a live
+> SuperTokens Core in all scenarios. Security-critical flows (session verification, JWT
+> validation, anti-CSRF) are still being hardened. Do not use in production without thorough
+> testing of your specific integration.
+>
+> Feedback, bug reports, and test contributions are very welcome. See [Contributing](#contributing)
+> below or open an issue on [GitHub](https://github.com/Hann1bal/SuperTokensNetSdk).
+
 # SuperTokensSDK.Net
 
 SuperTokens integration for ASP.NET Core. CDI 5.0 client, authentication handler, session middleware, twelve recipe wrappers (EmailPassword, Session, UserRoles, UserMetadata, TOTP, Passwordless, EmailVerification, Jwt, Multitenancy, ThirdParty, Dashboard), EmailDelivery and SmsDelivery ingredients, an API dispatching middleware, and an MCP gateway.
@@ -5,7 +16,7 @@ SuperTokens integration for ASP.NET Core. CDI 5.0 client, authentication handler
 - **Package**: `SuperTokensSDK.Net`
 - **Version**: 2.6.1
 - **Target framework**: net10.0
-- **Dependencies**: none. The package references only the `Microsoft.AspNetCore.App` shared framework. No external NuGet packages.
+- **Dependencies**: MailKit, libphonenumber-csharp, Microsoft.IdentityModel.Tokens, System.IdentityModel.Tokens.Jwt. All are widely-used, well-maintained packages.
 
 ## Installation
 
@@ -372,3 +383,30 @@ The full API reference covers every class, method, model, and constant in the SD
 | MCP gateway | `McpGateway`, `McpTools` | `SuperTokensSDK.Net.Mcp` |
 | Exceptions | `SuperTokensException` and subclasses | `SuperTokensSDK.Net.Core` |
 | Constants | `Constants` | `SuperTokensSDK.Net.Core` |
+
+## Contributing
+
+This is a community-driven SDK, not an official SuperTokens product. It is developed in the open and contributions are welcome.
+
+### Areas that need help
+
+- **Integration tests** against a live SuperTokens Core (Docker-based test harness)
+- **Security review** of the session verification flow (JWKS, anti-CSRF, token refresh)
+- **Recipe coverage** - several recipes lack comprehensive tests (TotpRecipe, PasswordlessRecipe, JwksClient, BooleanClaim, PrimitiveClaim)
+- **Documentation** - code examples for ThirdParty OAuth providers, Dashboard recipe, and overridable recipe interfaces
+
+### How to contribute
+
+1. Fork the [repository](https://github.com/Hann1bal/SuperTokensNetSdk)
+2. Create a feature branch (`git checkout -b feat/my-feature`)
+3. Write tests for your changes
+4. Ensure `dotnet build` and `dotnet test` pass with 0 errors
+5. Open a pull request with a clear description
+
+### Reporting issues
+
+Found a bug or security concern? Please [open an issue on GitHub](https://github.com/Hann1bal/SuperTokensNetSdk/issues) with:
+- SDK version
+- SuperTokens Core version and CDI version
+- Minimal reproduction steps
+- Expected vs actual behavior
