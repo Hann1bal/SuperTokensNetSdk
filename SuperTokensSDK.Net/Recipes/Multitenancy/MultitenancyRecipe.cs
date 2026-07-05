@@ -3,6 +3,11 @@ using SuperTokensSDK.Net.Core.Models;
 
 namespace SuperTokensSDK.Net.Recipes.Multitenancy;
 
+/// <summary>
+/// SuperTokens Multitenancy recipe: creates, deletes and queries tenants,
+/// manages third-party provider configs per tenant and associates users
+/// with tenants.
+/// </summary>
 public class MultitenancyRecipe
 {
     private readonly ICoreApiClient _coreApiClient;

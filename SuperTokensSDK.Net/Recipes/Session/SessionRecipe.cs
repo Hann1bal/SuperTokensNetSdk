@@ -91,13 +91,14 @@ public class SessionRecipe : IOverridableRecipe
             return await Overrides.GetActiveSessions(userId, tenantId, ct);
 
         var handles = await _coreApiClient.GetAllSessionHandlesForUserAsync(userId, tenantId, false, ct);
-        var sessions = new List<SessionInfo>();
-        foreach (var handle in handles)
+        if (handles.Count == 0)
         {
-            var info = await _coreApiClient.GetSessionInformationAsync(handle, ct);
-            if (info != null) sessions.Add(info);
+            return new List<SessionInfo>();
         }
-        return sessions;
+
+        var tasks = handles.Select(h => _coreApiClient.GetSessionInformationAsync(h, ct)).ToArray();
+        var results = await Task.WhenAll(tasks);
+        return results.Where(r => r != null).ToList()!;
     }
 
     public async Task<int> RevokeAllSessionsAsync(string userId, string tenantId = "public", CancellationToken ct = default)

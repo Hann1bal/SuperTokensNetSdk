@@ -65,27 +65,62 @@ public class CoreApiClient : ICoreApiClient
 
     public async Task<GetSessionResponse> VerifySessionAsync(VerifySessionRequest request, CancellationToken cancellationToken = default)
     {
-        // Core 11.x has a bug in /recipe/session/verify that rejects doAntiCsrfCheck
-        // even when not sent. We first try to verify the JWT signature using the JWKS
-        // published by Core, and fall back to a local decode if that fails.
-        Dictionary<string, object>? payload = null;
+        // Hybrid approach matching the official SuperTokens Go SDK:
+        // 1. Verify JWT signature locally using JWKS (with kid matching + algorithm restriction)
+        // 2. Anti-CSRF check locally (compare token in JWT with provided token)
+        // 3. Only call Core's /recipe/session/verify when checkDatabase is true or parentRefreshTokenHash1 is present
+        // 4. If JWKS fetch fails, throw TryRefreshTokenException (NO unsigned fallback)
 
-        if (_jwksClient != null)
+        if (_jwksClient == null)
+        {
+            // No JWKS client configured - must call Core's verify endpoint
+            return await SendJsonAsync<VerifySessionRequest, GetSessionResponse>(
+                HttpMethod.Post, Constants.Paths.RecipeSessionVerify, request, Constants.RecipeIds.Session, cancellationToken);
+        }
+
+        // Step 1: Local JWT signature verification using JWKS
+        Dictionary<string, object>? payload;
+        try
         {
             payload = await VerifyJwtSignatureAsync(request.AccessToken, cancellationToken);
         }
+        catch (UnauthorizedException)
+        {
+            throw; // Signature verification failed - re-throw
+        }
 
-        payload ??= DecodeJwtPayload(request.AccessToken);
+        if (payload == null)
+        {
+            // JWKS fetch failed - cannot verify locally, tell client to refresh
+            throw new TryRefreshTokenException("Failed to fetch JWKS from Core. Please refresh the session.");
+        }
 
-        var userId = payload?.GetValueOrDefault("sub")?.ToString() ?? "";
-        var sessionHandle = payload?.GetValueOrDefault("sessionHandle")?.ToString() ?? "";
+        // Step 2: Extract session info from verified JWT payload
+        var userId = payload.GetValueOrDefault("sub")?.ToString() ?? "";
+        var sessionHandle = payload.GetValueOrDefault("sessionHandle")?.ToString() ?? "";
+        var antiCsrfTokenInJwt = payload.GetValueOrDefault("antiCsrfToken")?.ToString();
+        var parentRefreshTokenHash1 = payload.GetValueOrDefault("parentRefreshTokenHash1")?.ToString();
 
         if (string.IsNullOrEmpty(userId))
         {
             throw new UnauthorizedException("Access token does not contain a valid userId.");
         }
 
-        // Extract userDataInJWT (custom claims, excluding protected fields)
+        // Step 3: Anti-CSRF check (local, matching Go SDK behavior)
+        if (request.DoAntiCsrfCheck && request.EnableAntiCsrf)
+        {
+            if (string.IsNullOrEmpty(request.AntiCsrfToken))
+            {
+                throw new TryRefreshTokenException(
+                    "Provided antiCsrfToken is undefined. If you do not want anti-csrf check for this API, please set doAntiCsrfCheck to false.");
+            }
+            if (antiCsrfTokenInJwt != request.AntiCsrfToken)
+            {
+                throw new TryRefreshTokenException("anti-csrf check failed");
+            }
+        }
+
+        // Step 4: Extract userDataInJWT (custom claims, excluding protected fields)
         var userData = new Dictionary<string, object>();
         var protectedFields = new HashSet<string>
         {
@@ -93,8 +128,7 @@ public class CoreApiClient : ICoreApiClient
             "parentRefreshTokenHash1", "refreshTokenHash1",
             "antiCsrfToken", "rsub", "tId"
         };
-
-        foreach (var kvp in payload!)
+        foreach (var kvp in payload)
         {
             if (!protectedFields.Contains(kvp.Key))
             {
@@ -102,6 +136,15 @@ public class CoreApiClient : ICoreApiClient
             }
         }
 
+        // Step 5: If checkDatabase is true OR parentRefreshTokenHash1 is present,
+        // call Core's verify endpoint for database-level checks (revocation, token theft)
+        if (request.CheckDatabase || !string.IsNullOrEmpty(parentRefreshTokenHash1))
+        {
+            return await SendJsonAsync<VerifySessionRequest, GetSessionResponse>(
+                HttpMethod.Post, Constants.Paths.RecipeSessionVerify, request, Constants.RecipeIds.Session, cancellationToken);
+        }
+
+        // Step 6: Return session info from local JWT verification (no Core call needed)
         return new GetSessionResponse
         {
             Status = "OK",
@@ -155,6 +198,7 @@ public class CoreApiClient : ICoreApiClient
 
     public async Task<GetUserResponse> GetUserByEmailAsync(string email, string tenantId = "public", CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
         query["email"] = email;
         return await GetJsonAsync<GetUserResponse>(
@@ -175,6 +219,7 @@ public class CoreApiClient : ICoreApiClient
 
     public async Task<EmailExistsResponse> EmailExistsAsync(string email, string tenantId = "public", CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
         query["email"] = email;
         return await GetJsonAsync<EmailExistsResponse>(
@@ -212,6 +257,7 @@ public class CoreApiClient : ICoreApiClient
 
     public async Task<UsersThatHaveRoleResponse> GetUsersThatHaveRoleAsync(string role, string tenantId = "public", int? limit = null, string? timeJoinedOrder = null, string? paginationToken = null, CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
         query["role"] = role;
         if (limit.HasValue)
@@ -324,30 +370,35 @@ public class CoreApiClient : ICoreApiClient
 
     public async Task<CreateCodeResponse> CreatePasswordlessCodeAsync(CreateCodeRequest request, string tenantId = "public", CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         return await SendJsonAsync<CreateCodeRequest, CreateCodeResponse>(
             HttpMethod.Post, $"{tenantId}{Constants.PasswordlessPaths.RecipeSigninupCode}", request, Constants.RecipeIds.Passwordless, cancellationToken);
     }
 
     public async Task<ConsumeCodeResponse> ConsumePasswordlessCodeAsync(ConsumeCodeRequest request, string tenantId = "public", CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         return await SendJsonAsync<ConsumeCodeRequest, ConsumeCodeResponse>(
             HttpMethod.Post, $"{tenantId}{Constants.PasswordlessPaths.RecipeSigninupCodeConsume}", request, Constants.RecipeIds.Passwordless, cancellationToken);
     }
 
     public async Task<CreateEmailVerificationTokenResponse> CreateEmailVerificationTokenAsync(string userId, string? email, string tenantId = "public", CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         return await SendJsonAsync<CreateEmailVerificationTokenRequest, CreateEmailVerificationTokenResponse>(
             HttpMethod.Post, $"{tenantId}{Constants.EmailVerificationPaths.RecipeUserEmailVerifyToken}", new CreateEmailVerificationTokenRequest { UserId = userId, Email = email }, Constants.RecipeIds.EmailVerification, cancellationToken);
     }
 
     public async Task<VerifyEmailResponse> VerifyEmailAsync(string token, string tenantId = "public", CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         return await SendJsonAsync<VerifyEmailRequest, VerifyEmailResponse>(
             HttpMethod.Post, $"{tenantId}{Constants.EmailVerificationPaths.RecipeUserEmailVerify}", new VerifyEmailRequest { Token = token }, Constants.RecipeIds.EmailVerification, cancellationToken);
     }
 
     public async Task<IsEmailVerifiedResponse> IsEmailVerifiedAsync(string userId, string? email, string tenantId = "public", CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
         query["userId"] = userId;
         if (!string.IsNullOrEmpty(email))
@@ -360,18 +411,21 @@ public class CoreApiClient : ICoreApiClient
 
     public async Task RevokeEmailVerificationTokensAsync(string userId, string? email, string tenantId = "public", CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         await SendJsonAsync<RevokeEmailVerificationTokensRequest, StatusResponse>(
             HttpMethod.Post, $"{tenantId}{Constants.EmailVerificationPaths.RecipeUserEmailVerifyTokenRemove}", new RevokeEmailVerificationTokensRequest { UserId = userId, Email = email }, Constants.RecipeIds.EmailVerification, cancellationToken);
     }
 
     public async Task UnverifyEmailAsync(string userId, string? email, string tenantId = "public", CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         await SendJsonAsync<UnverifyEmailRequest, StatusResponse>(
             HttpMethod.Post, $"{tenantId}{Constants.EmailVerificationPaths.RecipeUserEmailVerifyRemove}", new UnverifyEmailRequest { UserId = userId, Email = email }, Constants.RecipeIds.EmailVerification, cancellationToken);
     }
 
     public async Task<CreateJwtResponse> CreateJwtAsync(Dictionary<string, object> payload, int validityInSeconds = 3600, string? useStaticSigningKey = null, string tenantId = "public", CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         return await SendJsonAsync<CreateJwtRequest, CreateJwtResponse>(
             HttpMethod.Post, $"{tenantId}{Constants.JwtPaths.RecipeJwt}", new CreateJwtRequest { Payload = payload, Validity = validityInSeconds, UseStaticSigningKey = useStaticSigningKey }, Constants.RecipeIds.Jwt, cancellationToken);
     }
@@ -384,18 +438,21 @@ public class CoreApiClient : ICoreApiClient
 
     public async Task<CreateOrUpdateTenantResponse> CreateOrUpdateTenantAsync(string tenantId, TenantConfig config, CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         return await SendJsonAsync<CreateOrUpdateTenantRequest, CreateOrUpdateTenantResponse>(
             HttpMethod.Put, Constants.MultitenancyPaths.RecipeMultitenancyTenant, new CreateOrUpdateTenantRequest { TenantId = tenantId, Config = config }, Constants.RecipeIds.Multitenancy, cancellationToken);
     }
 
     public async Task<DeleteTenantResponse> DeleteTenantAsync(string tenantId, bool? deleteConditional = null, CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         return await SendJsonAsync<DeleteTenantRequest, DeleteTenantResponse>(
             HttpMethod.Post, Constants.MultitenancyPaths.RecipeMultitenancyTenantRemove, new DeleteTenantRequest { TenantId = tenantId, DeleteConditional = deleteConditional }, Constants.RecipeIds.Multitenancy, cancellationToken);
     }
 
     public async Task<GetTenantResponse> GetTenantAsync(string tenantId, CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         return await GetJsonAsync<GetTenantResponse>(
             $"{tenantId}{Constants.MultitenancyPaths.RecipeMultitenancyTenant}", Constants.RecipeIds.Multitenancy, cancellationToken);
     }
@@ -408,24 +465,28 @@ public class CoreApiClient : ICoreApiClient
 
     public async Task CreateOrUpdateThirdPartyConfigAsync(string tenantId, Dictionary<string, object> config, CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         await SendJsonAsync<Dictionary<string, object>, StatusResponse>(
             HttpMethod.Put, $"{tenantId}{Constants.MultitenancyPaths.RecipeMultitenancyConfigThirdParty}", config, Constants.RecipeIds.Multitenancy, cancellationToken);
     }
 
     public async Task DeleteThirdPartyConfigAsync(string tenantId, string thirdPartyId, CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         await SendJsonAsync<Dictionary<string, object>, StatusResponse>(
             HttpMethod.Post, $"{tenantId}{Constants.MultitenancyPaths.RecipeMultitenancyConfigThirdPartyRemove}", new Dictionary<string, object> { ["thirdPartyId"] = thirdPartyId }, Constants.RecipeIds.Multitenancy, cancellationToken);
     }
 
     public async Task<AssociateUserResponse> AssociateUserToTenantAsync(string tenantId, string userId, CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         return await SendJsonAsync<AssociateUserRequest, AssociateUserResponse>(
             HttpMethod.Post, $"{tenantId}{Constants.MultitenancyPaths.RecipeMultitenancyTenantUser}", new AssociateUserRequest { UserId = userId }, Constants.RecipeIds.Multitenancy, cancellationToken);
     }
 
     public async Task<bool> DisassociateUserFromTenantAsync(string tenantId, string userId, CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         var response = await SendJsonAsync<DisassociateUserFromTenantRequest, StatusResponse>(
             HttpMethod.Post, $"{tenantId}{Constants.MultitenancyPaths.RecipeMultitenancyTenantUserRemove}", new DisassociateUserFromTenantRequest { UserId = userId }, Constants.RecipeIds.Multitenancy, cancellationToken);
         return response.Status == Constants.Status.Ok;
@@ -433,6 +494,7 @@ public class CoreApiClient : ICoreApiClient
 
     public async Task<List<string>> GetAllSessionHandlesForUserAsync(string userId, string tenantId = "public", bool fetchAcrossAllTenants = false, CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
         query["userId"] = userId;
         query["fetchAcrossAllTenants"] = fetchAcrossAllTenants ? "true" : "false";
@@ -468,6 +530,7 @@ public class CoreApiClient : ICoreApiClient
 
     public async Task<List<string>> RevokeAllSessionsForUserAsync(string userId, string tenantId = "public", bool revokeAcrossAllTenants = false, CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         var response = await SendJsonAsync<RevokeAllSessionsRequest, RevokeAllSessionsResponse>(
             HttpMethod.Post, $"{tenantId}/recipe/session/remove", new RevokeAllSessionsRequest { UserId = userId, RevokeAcrossAllTenants = revokeAcrossAllTenants }, Constants.RecipeIds.Session, cancellationToken);
         return response.SessionHandlesRevoked;
@@ -500,12 +563,14 @@ public class CoreApiClient : ICoreApiClient
 
     public async Task<SignInUpResponse> ThirdPartySignInUpAsync(SignInUpRequest request, string tenantId = "public", CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         return await SendJsonAsync<SignInUpRequest, SignInUpResponse>(
             HttpMethod.Post, $"{tenantId}{Constants.ThirdPartyPaths.RecipeSigninup}", request, Constants.RecipeIds.ThirdParty, cancellationToken);
     }
 
     public async Task<ManuallyCreateOrUpdateUserResponse> ManuallyCreateOrUpdateThirdPartyUserAsync(ManuallyCreateOrUpdateUserRequest request, string tenantId = "public", CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         return await SendJsonAsync<ManuallyCreateOrUpdateUserRequest, ManuallyCreateOrUpdateUserResponse>(
             HttpMethod.Post, $"{tenantId}{Constants.ThirdPartyPaths.RecipeSigninup}", request, Constants.RecipeIds.ThirdParty, cancellationToken);
     }
@@ -520,6 +585,7 @@ public class CoreApiClient : ICoreApiClient
 
     public async Task<ThirdPartyUser?> GetThirdPartyUserByThirdPartyInfoAsync(ThirdPartyInfo info, string tenantId = "public", CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
         query["thirdPartyId"] = info.ThirdPartyId;
         query["thirdPartyUserId"] = info.ThirdPartyUserId;
@@ -529,6 +595,7 @@ public class CoreApiClient : ICoreApiClient
 
     public async Task<GetUsersByEmailResponse> GetThirdPartyUsersByEmailAsync(string email, string tenantId = "public", CancellationToken cancellationToken = default)
     {
+        ValidateTenantId(tenantId);
         var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
         query["email"] = email;
         return await GetJsonAsync<GetUsersByEmailResponse>(
@@ -640,14 +707,14 @@ public class CoreApiClient : ICoreApiClient
 
     private async Task<TResponse> GetJsonAsync<TResponse>(string pathAndQuery, string? rid, CancellationToken cancellationToken) where TResponse : new()
     {
-        _logger.LogDebug("CDI GET {Path}", pathAndQuery);
+        _logger.LogDebug("CDI GET {Path}", GetPathForLogging(pathAndQuery));
         using var response = await SendWithRetryAsync(HttpMethod.Get, pathAndQuery, null, rid, cancellationToken);
         return await DeserializeResponseAsync<TResponse>(response, cancellationToken);
     }
 
     private async Task<TResponse> SendJsonAsync<TRequest, TResponse>(HttpMethod method, string path, TRequest requestBody, string? rid, CancellationToken cancellationToken) where TResponse : new()
     {
-        _logger.LogDebug("CDI {Method} {Path}", method, path);
+        _logger.LogDebug("CDI {Method} {Path}", method, GetPathForLogging(path));
         var json = JsonSerializer.Serialize(requestBody, JsonOptions);
         using var response = await SendWithRetryAsync(method, path, json, rid, cancellationToken);
         return await DeserializeResponseAsync<TResponse>(response, cancellationToken);
@@ -657,6 +724,7 @@ public class CoreApiClient : ICoreApiClient
     {
         var cdiVersion = await GetOrNegotiateCdiVersionAsync(cancellationToken);
         var isRecipePath = IsRecipePath(pathAndQuery);
+        var pathForLogging = GetPathForLogging(pathAndQuery);
 
         Exception? lastException = null;
         var hostCount = _hosts.Count;
@@ -665,7 +733,7 @@ public class CoreApiClient : ICoreApiClient
         {
             var host = GetNextHost();
             var url = new Uri(host, pathAndQuery);
-            _logger.LogDebug("CDI request to {Url}", url);
+            _logger.LogDebug("CDI request to {Host}{Path}", host, pathForLogging);
 
             for (var retry = 0; retry <= Constants.RateLimitRetries; retry++)
             {
@@ -693,7 +761,7 @@ public class CoreApiClient : ICoreApiClient
 
                     if ((int)response.StatusCode == Constants.RateLimitStatusCode && retry < Constants.RateLimitRetries)
                     {
-                        var delayMs = 10 + (250 * retry);
+                        var delayMs = 10 + (250 * retry) + Random.Shared.Next(0, 100);
                         _logger.LogDebug("CDI rate limited; retrying in {DelayMs}ms", delayMs);
                         await Task.Delay(delayMs, cancellationToken);
                         continue;
@@ -784,7 +852,7 @@ public class CoreApiClient : ICoreApiClient
         }
 
         throw new HttpRequestException(
-            $"SuperTokens Core returned {httpStatusCode}: {content}",
+            $"SuperTokens Core returned {httpStatusCode}: {TruncateForLogging(content)}",
             null,
             (HttpStatusCode)httpStatusCode);
     }
@@ -879,7 +947,10 @@ public class CoreApiClient : ICoreApiClient
 
             try
             {
-                using var response = await _httpClient.GetAsync(url, cancellationToken);
+                using var response = await _httpClient.GetAsync(
+                    url,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    cancellationToken);
                 response.EnsureSuccessStatusCode();
 
                 var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -981,6 +1052,70 @@ public class CoreApiClient : ICoreApiClient
         return path.StartsWith("/recipe/", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Validates that a tenant identifier matches the safe character set
+    /// <c>[a-zA-Z0-9_-]+</c> to prevent path traversal via the tenantId
+    /// segment interpolated into CDI URL paths.
+    /// </summary>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="tenantId"/>
+    /// is null, empty, or contains characters outside the allowed set.</exception>
+    private static void ValidateTenantId(string tenantId)
+    {
+        if (string.IsNullOrEmpty(tenantId))
+        {
+            throw new ArgumentException(
+                "tenantId must not be null or empty.", nameof(tenantId));
+        }
+
+        foreach (var c in tenantId)
+        {
+            var isAllowed =
+                (c >= 'a' && c <= 'z') ||
+                (c >= 'A' && c <= 'Z') ||
+                (c >= '0' && c <= '9') ||
+                c == '_' || c == '-';
+            if (!isAllowed)
+            {
+                throw new ArgumentException(
+                    $"tenantId '{tenantId}' contains invalid character '{c}'. " +
+                    "Only letters, digits, underscore and hyphen are allowed.",
+                    nameof(tenantId));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns the path portion of a URL without the query string, used to
+    /// avoid logging PII (emails, user IDs) that may be present in query
+    /// parameters.
+    /// </summary>
+    private static string GetPathForLogging(string pathAndQuery)
+    {
+        if (string.IsNullOrEmpty(pathAndQuery))
+        {
+            return pathAndQuery;
+        }
+
+        var queryIndex = pathAndQuery.IndexOf('?');
+        return queryIndex >= 0 ? pathAndQuery[..queryIndex] : pathAndQuery;
+    }
+
+    /// <summary>
+    /// Truncates a response body for inclusion in exception messages to avoid
+    /// leaking large amounts of data or PII into logs.
+    /// </summary>
+    private static string TruncateForLogging(string content, int maxLength = 200)
+    {
+        if (string.IsNullOrEmpty(content))
+        {
+            return string.Empty;
+        }
+
+        return content.Length <= maxLength
+            ? content
+            : content[..maxLength] + "...(truncated)";
+    }
+
     #endregion
 
     private class ApiVersionResponse
@@ -1013,14 +1148,52 @@ public class CoreApiClient : ICoreApiClient
             return null;
         }
 
+        // Extract kid from JWT header for proper key matching
+        string? kid = null;
+        try
+        {
+            var headerPart = accessToken.Split('.')[0];
+            headerPart = headerPart.Replace('-', '+').Replace('_', '/');
+            switch (headerPart.Length % 4)
+            {
+                case 2: headerPart += "=="; break;
+                case 3: headerPart += "="; break;
+            }
+            var headerJson = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(headerPart));
+            using var headerDoc = System.Text.Json.JsonDocument.Parse(headerJson);
+            kid = headerDoc.RootElement.TryGetProperty("kid", out var kidElement) ? kidElement.GetString() : null;
+        }
+        catch
+        {
+            // If we can't parse the header, let validation fail naturally
+        }
+
+        // Select the specific key matching the kid, or fall back to all keys
+        var signingKeys = jwks.GetSigningKeys();
+        if (!string.IsNullOrEmpty(kid))
+        {
+            var matchingKey = signingKeys.FirstOrDefault(k => k.KeyId == kid);
+            if (matchingKey != null)
+            {
+                signingKeys = [matchingKey];
+            }
+            else
+            {
+                // Token references a kid not in the JWKS - reject it
+                throw new UnauthorizedException($"JWT key ID '{kid}' not found in JWKS.");
+            }
+        }
+
         var handler = new SystemIdentityModelTokensJwt.JwtSecurityTokenHandler();
         var parameters = new TokenValidationParameters
         {
-            IssuerSigningKeys = jwks.GetSigningKeys(),
+            IssuerSigningKeys = signingKeys,
             ValidateIssuer = false,
             ValidateAudience = false,
             ValidateLifetime = true,
-            ClockSkew = TimeSpan.Zero
+            ClockSkew = TimeSpan.Zero,
+            // Restrict to RSA algorithms to prevent algorithm confusion attacks
+            ValidAlgorithms = ["RS256", "RS384", "RS512"]
         };
 
         try
@@ -1039,64 +1212,6 @@ public class CoreApiClient : ICoreApiClient
         catch (SecurityTokenException ex)
         {
             throw new UnauthorizedException($"Access token verification failed: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Decodes a JWT payload without signature verification.
-    /// Workaround for Core 11.x verify endpoint bug.
-    /// </summary>
-    private static Dictionary<string, object>? DecodeJwtPayload(string jwt)
-    {
-        try
-        {
-            var parts = jwt.Split('.');
-            if (parts.Length < 2) return null;
-
-            var payloadBase64 = parts[1];
-            payloadBase64 = payloadBase64.Replace('-', '+').Replace('_', '/');
-            switch (payloadBase64.Length % 4)
-            {
-                case 2: payloadBase64 += "=="; break;
-                case 3: payloadBase64 += "="; break;
-            }
-
-            var jsonBytes = Convert.FromBase64String(payloadBase64);
-            var json = System.Text.Encoding.UTF8.GetString(jsonBytes);
-
-            using var doc = System.Text.Json.JsonDocument.Parse(json);
-            var result = new Dictionary<string, object>();
-            foreach (var prop in doc.RootElement.EnumerateObject())
-            {
-                result[prop.Name] = prop.Value.ValueKind switch
-                {
-                    System.Text.Json.JsonValueKind.String => prop.Value.GetString() ?? "",
-                    System.Text.Json.JsonValueKind.Number => prop.Value.GetRawText(),
-                    System.Text.Json.JsonValueKind.True => true,
-                    System.Text.Json.JsonValueKind.False => false,
-                    System.Text.Json.JsonValueKind.Null => "",
-                    _ => prop.Value.GetRawText()
-                };
-            }
-
-            // Check expiry
-            if (result.TryGetValue("exp", out var expStr) && long.TryParse(expStr.ToString(), out var exp))
-            {
-                if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() > exp)
-                {
-                    throw new UnauthorizedException("Access token has expired.");
-                }
-            }
-
-            return result;
-        }
-        catch (UnauthorizedException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            throw new UnauthorizedException($"Failed to decode access token: {ex.Message}");
         }
     }
 }

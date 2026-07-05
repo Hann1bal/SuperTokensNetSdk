@@ -10,6 +10,11 @@ public class UserMetadataRecipe
 {
     private readonly ICoreApiClient _coreApiClient;
 
+    private static readonly System.Text.Json.JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     public UserMetadataRecipe(ICoreApiClient coreApiClient)
     {
         _coreApiClient = coreApiClient ?? throw new ArgumentNullException(nameof(coreApiClient));
@@ -31,7 +36,9 @@ public class UserMetadataRecipe
         var metadata = await GetMetadataAsync(userId, cancellationToken);
         if (metadata == null) return null;
 
-        var json = System.Text.Json.JsonSerializer.Serialize(metadata);
-        return System.Text.Json.JsonSerializer.Deserialize<T>(json);
+        // Serialize directly to UTF-8 bytes and deserialize from them to avoid
+        // the double allocation of an intermediate string.
+        var utf8Json = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(metadata, JsonOptions);
+        return System.Text.Json.JsonSerializer.Deserialize<T>(utf8Json, JsonOptions);
     }
 }

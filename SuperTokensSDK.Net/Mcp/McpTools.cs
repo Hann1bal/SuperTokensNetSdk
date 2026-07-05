@@ -1,4 +1,5 @@
 using System.Text.Json;
+using SuperTokensSDK.Net.Core;
 using SuperTokensSDK.Net.Recipes.EmailPassword;
 using SuperTokensSDK.Net.Recipes.Session;
 using SuperTokensSDK.Net.Recipes.UserRoles;
@@ -13,6 +14,11 @@ public class McpTools
     private readonly EmailPasswordRecipe _emailPassword;
     private readonly SessionRecipe _session;
     private readonly UserRolesRecipe _userRoles;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
 
     public McpTools(EmailPasswordRecipe emailPassword, SessionRecipe session, UserRolesRecipe userRoles)
     {
@@ -60,14 +66,14 @@ public class McpTools
         var userId = GetStringArgument(arguments, "userId");
         var role = GetStringArgument(arguments, "role");
         await _userRoles.AddRoleAsync(userId, role, cancellationToken);
-        return SuccessResult(new { userId, role, status = "OK" });
+        return SuccessResult(new { userId, role, status = Constants.Status.Ok });
     }
 
     public async Task<McpToolResult> RevokeSessionAsync(Dictionary<string, object>? arguments, CancellationToken cancellationToken)
     {
         var sessionHandle = GetStringArgument(arguments, "sessionHandle");
         await _session.RevokeSessionAsync(sessionHandle, cancellationToken);
-        return SuccessResult(new { sessionHandle, status = "OK" });
+        return SuccessResult(new { sessionHandle, status = Constants.Status.Ok });
     }
 
     private static string GetStringArgument(Dictionary<string, object>? arguments, string key)
@@ -78,7 +84,7 @@ public class McpTools
 
     private static McpToolResult SuccessResult(object data) => new()
     {
-        Content = new List<McpToolContent> { new() { Text = JsonSerializer.Serialize(data, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }) } }
+        Content = new List<McpToolContent> { new() { Text = JsonSerializer.Serialize(data, JsonOptions) } }
     };
 
     private static McpToolResult ErrorResult(string message) => new()

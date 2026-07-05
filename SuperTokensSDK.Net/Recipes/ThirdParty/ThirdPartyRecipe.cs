@@ -3,6 +3,11 @@ using SuperTokensSDK.Net.Core.Models;
 
 namespace SuperTokensSDK.Net.Recipes.ThirdParty;
 
+/// <summary>
+/// SuperTokens ThirdParty recipe: signs users in/up with OAuth providers
+/// (Google, GitHub, Apple, etc.) and resolves users by id, third-party info
+/// or email.
+/// </summary>
 public class ThirdPartyRecipe
 {
     private readonly ICoreApiClient _coreApiClient;
@@ -16,7 +21,7 @@ public class ThirdPartyRecipe
     {
         var response = await _coreApiClient.ThirdPartySignInUpAsync(
             new SignInUpRequest { ThirdParty = thirdPartyInfo, OauthTokens = oauthTokens }, tenantId, ct);
-        if (response.Status != "OK" || response.User == null)
+        if (response.Status != Constants.Status.Ok || response.User == null)
             throw new SuperTokensException($"ThirdParty sign-in/up failed: {response.Status}");
         return (response.User, response.CreatedNewUser);
     }
@@ -25,7 +30,7 @@ public class ThirdPartyRecipe
     {
         var response = await _coreApiClient.ManuallyCreateOrUpdateThirdPartyUserAsync(
             new ManuallyCreateOrUpdateUserRequest { ThirdPartyId = thirdPartyId, ThirdPartyUserId = thirdPartyUserId, Email = email }, tenantId, ct);
-        if (response.Status != "OK" || response.User == null)
+        if (response.Status != Constants.Status.Ok || response.User == null)
             throw new SuperTokensException($"ThirdParty manually create/update failed: {response.Status}");
         return (response.User, response.CreatedNewUser);
     }
@@ -44,7 +49,7 @@ public class ThirdPartyRecipe
     public async Task<List<UserByEmailItem>> GetUsersByEmailAsync(string email, string tenantId = "public", CancellationToken ct = default)
     {
         var response = await _coreApiClient.GetThirdPartyUsersByEmailAsync(email, tenantId, ct);
-        if (response.Status != "OK")
+        if (response.Status != Constants.Status.Ok)
             throw new SuperTokensException($"ThirdParty get users by email failed: {response.Status}");
         return response.Users;
     }

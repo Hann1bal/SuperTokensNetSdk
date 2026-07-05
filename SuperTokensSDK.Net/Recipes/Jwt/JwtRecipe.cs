@@ -3,6 +3,10 @@ using SuperTokensSDK.Net.Core.Models;
 
 namespace SuperTokensSDK.Net.Recipes.Jwt;
 
+/// <summary>
+/// SuperTokens JWT recipe: creates short-lived JWTs signed by Core and
+/// exposes the public JWKS for signature verification.
+/// </summary>
 public class JwtRecipe
 {
     private readonly ICoreApiClient _coreApiClient;

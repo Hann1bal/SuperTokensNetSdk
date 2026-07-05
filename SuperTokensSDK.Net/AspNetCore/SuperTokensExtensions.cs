@@ -53,18 +53,18 @@ public class SuperTokensMiddleware
 
             try
             {
+                // Determine if this is a Bearer token request (API client) or cookie-based (browser)
+                var isBearerToken = context.Request.Headers.ContainsKey("Authorization");
+
                 var verifyRequest = new VerifySessionRequest
                 {
                     AccessToken = accessToken,
-                    DoAntiCsrfCheck = false,  // API clients (Bearer token) don't use anti-CSRF
+                    EnableAntiCsrf = opts.EnableAntiCsrf,
+                    // Cookie-based sessions must always pass anti-CSRF check when enabled.
+                    // Bearer token (API clients) don't use cookies, so CSRF is not applicable.
+                    DoAntiCsrfCheck = !isBearerToken && opts.EnableAntiCsrf,
+                    AntiCsrfToken = antiCsrfToken
                 };
-
-                // Only send antiCsrfToken for cookie-based sessions (browser clients)
-                if (opts.EnableAntiCsrf && !string.IsNullOrEmpty(antiCsrfToken))
-                {
-                    verifyRequest.AntiCsrfToken = antiCsrfToken;
-                    verifyRequest.DoAntiCsrfCheck = true;
-                }
 
                 var verifyResult = await coreApiClient.VerifySessionAsync(verifyRequest, context.RequestAborted);
 
@@ -154,6 +154,15 @@ public static class SuperTokensExtensions
     public static IServiceCollection AddSuperTokens(this IServiceCollection services, Action<SuperTokensOptions> configure)
     {
         services.Configure(configure);
+
+        // Create a local copy to configure authentication options
+        var options = new SuperTokensOptions();
+        configure(options);
+
+        // Validate required fields early so misconfiguration fails at startup
+        // rather than at the first request.
+        options.Validate();
+
         services.AddSingleton<JwksClient>();
         services.AddHttpClient(Constants.HttpClientNames.CoreApiClient, (provider, client) =>
         {
@@ -191,6 +200,16 @@ public static class SuperTokensExtensions
 
         // Register HttpClient for TwilioSmsDelivery (avoids socket exhaustion)
         services.AddHttpClient<ISmsDelivery, TwilioSmsDelivery>();
+
+        // Configure authentication options from SuperTokensOptions
+        services.Configure<SuperTokensAuthenticationOptions>(opt =>
+        {
+            opt.EnableAntiCsrf = options.EnableAntiCsrf;
+            opt.AccessTokenCookieName = options.AccessTokenCookieName;
+            opt.RefreshTokenCookieName = options.RefreshTokenCookieName;
+            opt.AntiCsrfCookieName = options.AntiCsrfCookieName;
+        });
+
         return services;
     }
 

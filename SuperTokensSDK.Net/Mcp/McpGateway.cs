@@ -9,6 +9,11 @@ public class McpGateway
 {
     private readonly McpTools _tools;
 
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
     public McpGateway(McpTools tools)
     {
         _tools = tools ?? throw new ArgumentNullException(nameof(tools));
@@ -121,5 +126,5 @@ public class McpGateway
         }
     }
 
-    public static string ToJson(object value) => JsonSerializer.Serialize(value, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+    public static string ToJson(object value) => JsonSerializer.Serialize(value, JsonOptions);
 }

@@ -238,115 +238,162 @@ public class CoreApiClientTests : IDisposable
     }
 
     [Fact]
-    public async Task VerifySessionAsync_LocallyDecodesValidJwt()
+    public async Task VerifySessionAsync_CallsCoreVerifyEndpoint()
     {
+        StubApiVersion();
+        _server.Given(Request.Create().WithPath(Constants.Paths.RecipeSessionVerify).UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBodyAsJson(new
+            {
+                status = "OK",
+                session = new
+                {
+                    handle = "test-handle",
+                    userId = "user123",
+                    userDataInJWT = new { role = "admin" },
+                    expiryTime = 1234567890L,
+                    tenantId = "public"
+                }
+            }));
+
         var client = CreateClient();
-        var jwt = TestJwtHelper.CreateJwt(new Dictionary<string, object>
-        {
-            ["sub"] = "local-user",
-            ["sessionHandle"] = "local-sh",
-            ["roles"] = "admin"
-        });
+        var result = await client.VerifySessionAsync(new VerifySessionRequest { AccessToken = "some-jwt" });
 
-        var result = await client.VerifySessionAsync(new VerifySessionRequest { AccessToken = jwt });
-
-        Assert.Equal("local-user", result.Session!.UserId);
-        Assert.Equal("admin", result.Session.UserDataInJWT["roles"]);
+        Assert.Equal("OK", result.Status);
+        Assert.Equal("test-handle", result.Session!.Handle);
+        Assert.Equal("user123", result.Session.UserId);
+        Assert.Equal("admin", result.Session.UserDataInJWT["role"].ToString());
+        Assert.Equal(1234567890L, result.Session.ExpiryTime);
+        Assert.Equal("public", result.Session.TenantId);
     }
 
     [Fact]
-    public async Task VerifySessionAsync_LocallyRejectsExpiredJwt()
+    public async Task VerifySessionAsync_ThrowsUnauthorizedOnExpiredToken()
     {
+        StubApiVersion();
+        _server.Given(Request.Create().WithPath(Constants.Paths.RecipeSessionVerify).UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBodyAsJson(new
+            {
+                status = "UNAUTHORISED",
+                message = "Access token has expired"
+            }));
+
         var client = CreateClient();
-        var jwt = TestJwtHelper.CreateJwt(new Dictionary<string, object> { ["sub"] = "x" }, expired: true);
-        var ex = await Assert.ThrowsAsync<UnauthorizedException>(() => client.VerifySessionAsync(new VerifySessionRequest { AccessToken = jwt }));
+        var ex = await Assert.ThrowsAsync<UnauthorizedException>(() =>
+            client.VerifySessionAsync(new VerifySessionRequest { AccessToken = "expired-jwt" }));
         Assert.Contains("expired", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task VerifySessionAsync_LocallyRejectsMissingSub()
+    public async Task VerifySessionAsync_ThrowsUnauthorizedOnMissingUserId()
     {
+        StubApiVersion();
+        _server.Given(Request.Create().WithPath(Constants.Paths.RecipeSessionVerify).UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBodyAsJson(new
+            {
+                status = "UNAUTHORISED",
+                message = "Access token does not contain a valid userId"
+            }));
+
         var client = CreateClient();
-        var jwt = TestJwtHelper.CreateJwt(new Dictionary<string, object> { ["sessionHandle"] = "sh" });
-        var ex = await Assert.ThrowsAsync<UnauthorizedException>(() => client.VerifySessionAsync(new VerifySessionRequest { AccessToken = jwt }));
+        var ex = await Assert.ThrowsAsync<UnauthorizedException>(() =>
+            client.VerifySessionAsync(new VerifySessionRequest { AccessToken = "no-sub-jwt" }));
         Assert.Contains("userId", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task VerifySessionAsync_LocallyRejectsMalformedJwt()
+    public async Task VerifySessionAsync_ThrowsUnauthorizedOnMalformedToken()
     {
+        StubApiVersion();
+        _server.Given(Request.Create().WithPath(Constants.Paths.RecipeSessionVerify).UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBodyAsJson(new
+            {
+                status = "UNAUTHORISED",
+                message = "Malformed access token"
+            }));
+
         var client = CreateClient();
-        var ex = await Assert.ThrowsAsync<UnauthorizedException>(() => client.VerifySessionAsync(new VerifySessionRequest { AccessToken = "not-a-jwt" }));
-        Assert.IsAssignableFrom<SuperTokensException>(ex);
+        var ex = await Assert.ThrowsAsync<UnauthorizedException>(() =>
+            client.VerifySessionAsync(new VerifySessionRequest { AccessToken = "not-a-jwt" }));
+        Assert.Contains("Malformed", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task VerifySessionAsync_StripsProtectedFields()
+    public async Task VerifySessionAsync_ReturnsUserDataFromCore()
     {
+        StubApiVersion();
+        _server.Given(Request.Create().WithPath(Constants.Paths.RecipeSessionVerify).UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBodyAsJson(new
+            {
+                status = "OK",
+                session = new
+                {
+                    handle = "sh-custom",
+                    userId = "user-custom",
+                    userDataInJWT = new { role = "admin", tenant = "org1", custom = "keep" },
+                    expiryTime = 9999999999L,
+                    tenantId = "public"
+                }
+            }));
+
         var client = CreateClient();
-        var jwt = TestJwtHelper.CreateJwt(new Dictionary<string, object>
-        {
-            ["sub"] = "user-protected",
-            ["iat"] = 1234567890,
-            ["exp"] = TestJwtHelper.FutureEpoch(),
-            ["sessionHandle"] = "sh-protected",
-            ["custom"] = "keep"
-        });
+        var result = await client.VerifySessionAsync(new VerifySessionRequest { AccessToken = "jwt-with-claims" });
 
-        var result = await client.VerifySessionAsync(new VerifySessionRequest { AccessToken = jwt });
-
-        Assert.False(result.Session!.UserDataInJWT.ContainsKey("sub"));
-        Assert.False(result.Session.UserDataInJWT.ContainsKey("iat"));
-        Assert.False(result.Session.UserDataInJWT.ContainsKey("exp"));
-        Assert.False(result.Session.UserDataInJWT.ContainsKey("sessionHandle"));
-        Assert.Equal("keep", result.Session.UserDataInJWT["custom"]);
+        Assert.Equal("user-custom", result.Session!.UserId);
+        Assert.Equal("admin", result.Session.UserDataInJWT["role"].ToString());
+        Assert.Equal("org1", result.Session.UserDataInJWT["tenant"].ToString());
+        Assert.Equal("keep", result.Session.UserDataInJWT["custom"].ToString());
     }
 
     [Fact]
-    public async Task VerifySessionAsync_VerifiesJwtSignatureWithJwks()
+    public async Task VerifySessionAsync_SendsAntiCsrfTokenWhenPresent()
     {
-        var (jwt, jwksJson) = TestJwtHelper.CreateSignedJwt(new Dictionary<string, object>
+        StubApiVersion();
+        _server.Given(Request.Create().WithPath(Constants.Paths.RecipeSessionVerify).UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBodyAsJson(new
+            {
+                status = "OK",
+                session = new
+                {
+                    handle = "sh-csrf",
+                    userId = "u-csrf",
+                    userDataInJWT = new { },
+                    expiryTime = 1234567890L,
+                    tenantId = "public"
+                }
+            }));
+
+        var client = CreateClient();
+        await client.VerifySessionAsync(new VerifySessionRequest
         {
-            ["sub"] = "jwks-user",
-            ["sessionHandle"] = "jwks-sh",
-            ["roles"] = "admin"
+            AccessToken = "jwt",
+            AntiCsrfToken = "csrf-abc",
+            DoAntiCsrfCheck = true,
+            EnableAntiCsrf = true
         });
 
-        _server.Given(Request.Create().WithPath("/.well-known/jwks.json").UsingGet())
-            .RespondWith(Response.Create()
-                .WithStatusCode(200)
-                .WithHeader("Content-Type", "application/json")
-                .WithBody(jwksJson));
-
-        var jwksClient = new JwksClient(_httpClient);
-        var client = CreateClient(jwksClient: jwksClient);
-
-        var result = await client.VerifySessionAsync(new VerifySessionRequest { AccessToken = jwt });
-
-        Assert.Equal("jwks-user", result.Session!.UserId);
-        Assert.Equal("admin", result.Session.UserDataInJWT["roles"]);
+        var request = _server.LogEntries.Last(le => le.RequestMessage.Path == Constants.Paths.RecipeSessionVerify).RequestMessage;
+        Assert.NotNull(request.Body);
+        using var body = System.Text.Json.JsonDocument.Parse(request.Body);
+        Assert.Equal("csrf-abc", body.RootElement.GetProperty("antiCsrfToken").GetString());
+        Assert.True(body.RootElement.GetProperty("doAntiCsrfCheck").GetBoolean());
+        Assert.True(body.RootElement.GetProperty("enableAntiCsrf").GetBoolean());
     }
 
     [Fact]
-    public async Task VerifySessionAsync_InvalidSignatureWithJwks_FallsBackToLocalDecode()
+    public async Task VerifySessionAsync_ThrowsUnauthorizedOnInvalidSignature()
     {
-        var jwt = TestJwtHelper.CreateJwt(new Dictionary<string, object>
-        {
-            ["sub"] = "fallback-user",
-            ["sessionHandle"] = "fallback-sh",
-            ["roles"] = "admin"
-        });
+        StubApiVersion();
+        _server.Given(Request.Create().WithPath(Constants.Paths.RecipeSessionVerify).UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBodyAsJson(new
+            {
+                status = "UNAUTHORISED",
+                message = "Access token signature verification failed"
+            }));
 
-        _server.Given(Request.Create().WithPath("/.well-known/jwks.json").UsingGet())
-            .RespondWith(Response.Create().WithStatusCode(500));
-
-        var jwksClient = new JwksClient(_httpClient);
-        var client = CreateClient(jwksClient: jwksClient);
-
-        var result = await client.VerifySessionAsync(new VerifySessionRequest { AccessToken = jwt });
-
-        Assert.Equal("fallback-user", result.Session!.UserId);
-        Assert.Equal("admin", result.Session.UserDataInJWT["roles"]);
+        var client = CreateClient();
+        var ex = await Assert.ThrowsAsync<UnauthorizedException>(() =>
+            client.VerifySessionAsync(new VerifySessionRequest { AccessToken = "bad-sig-jwt" }));
+        Assert.Contains("signature", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

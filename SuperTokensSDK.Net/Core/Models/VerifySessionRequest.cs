@@ -4,6 +4,7 @@ namespace SuperTokensSDK.Net.Core.Models;
 
 /// <summary>
 /// Request body for verifying an access token via CDI.
+/// All fields are sent to Core's /recipe/session/verify endpoint.
 /// </summary>
 public class VerifySessionRequest
 {
@@ -15,6 +16,9 @@ public class VerifySessionRequest
 
     [JsonPropertyName("doAntiCsrfCheck")]
     public bool DoAntiCsrfCheck { get; set; } = true;
+
+    [JsonPropertyName("enableAntiCsrf")]
+    public bool EnableAntiCsrf { get; set; } = true;
 
     [JsonPropertyName("checkDatabase")]
     public bool CheckDatabase { get; set; } = false;

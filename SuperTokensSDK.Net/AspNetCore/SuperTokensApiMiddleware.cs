@@ -1,5 +1,8 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using SuperTokensSDK.Net.Configuration;
 
 namespace SuperTokensSDK.Net.AspNetCore;
 
@@ -10,6 +13,9 @@ namespace SuperTokensSDK.Net.AspNetCore;
 public class SuperTokensApiMiddleware
 {
     private readonly RequestDelegate _next;
+    private readonly SuperTokensOptions _options;
+    private readonly ILogger<SuperTokensApiMiddleware> _logger;
+    private readonly HashSet<string> _allowedOrigins = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly Dictionary<(string Path, string Method), (string CdiPath, string RecipeId)> RouteMap = new()
     {
@@ -46,9 +52,19 @@ public class SuperTokensApiMiddleware
         { ("/auth/totp/device/list", "GET"), ("/recipe/totp/device/list", "totp") },
     };
 
-    public SuperTokensApiMiddleware(RequestDelegate next)
+    public SuperTokensApiMiddleware(RequestDelegate next, IOptions<SuperTokensOptions> options, ILogger<SuperTokensApiMiddleware> logger)
     {
         _next = next ?? throw new ArgumentNullException(nameof(next));
+        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+        foreach (var origin in _options.AllowedOrigins)
+        {
+            if (!string.IsNullOrWhiteSpace(origin))
+            {
+                _allowedOrigins.Add(origin.Trim());
+            }
+        }
     }
 
     public async Task InvokeAsync(HttpContext context, Core.ICoreApiClient coreApiClient)
@@ -76,7 +92,7 @@ public class SuperTokensApiMiddleware
                 !HttpMethods.IsDelete(context.Request.Method))
             {
                 context.Request.EnableBuffering();
-                using var reader = new StreamReader(context.Request.Body);
+                using var reader = new StreamReader(context.Request.Body, leaveOpen: true);
                 body = await reader.ReadToEndAsync();
                 context.Request.Body.Position = 0;
             }
@@ -96,14 +112,39 @@ public class SuperTokensApiMiddleware
         await _next(context);
     }
 
-    private static void AddCorsHeaders(HttpContext context)
+    private void AddCorsHeaders(HttpContext context)
     {
         var origin = context.Request.Headers.Origin.FirstOrDefault();
         if (!string.IsNullOrEmpty(origin))
         {
-            context.Response.Headers.AccessControlAllowOrigin = origin;
-            context.Response.Headers.AccessControlAllowCredentials = "true";
-            context.Response.Headers.AccessControlExposeHeaders = "rid, fdi-version, anti-csrf";
+            // When an allowlist is configured, only reflect origins that match.
+            // An empty allowlist preserves backward-compatible (insecure) behavior
+            // and is logged once per middleware instance to surface the risk.
+            if (_allowedOrigins.Count > 0)
+            {
+                if (_allowedOrigins.Contains(origin))
+                {
+                    context.Response.Headers.AccessControlAllowOrigin = origin;
+                    context.Response.Headers.AccessControlAllowCredentials = "true";
+                    context.Response.Headers.AccessControlExposeHeaders = "rid, fdi-version, anti-csrf";
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "CORS request from origin '{Origin}' rejected because it is not in SuperTokensOptions.AllowedOrigins.",
+                        origin);
+                }
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "SuperTokensOptions.AllowedOrigins is empty; reflecting CORS origin '{Origin}' with credentials. " +
+                    "Configure AllowedOrigins in production to prevent credential leakage.",
+                    origin);
+                context.Response.Headers.AccessControlAllowOrigin = origin;
+                context.Response.Headers.AccessControlAllowCredentials = "true";
+                context.Response.Headers.AccessControlExposeHeaders = "rid, fdi-version, anti-csrf";
+            }
         }
 
         if (context.Request.Method == "OPTIONS")

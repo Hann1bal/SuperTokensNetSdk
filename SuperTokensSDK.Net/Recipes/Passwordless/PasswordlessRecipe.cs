@@ -4,6 +4,10 @@ using SuperTokensSDK.Net.Core.Models;
 
 namespace SuperTokensSDK.Net.Recipes.Passwordless;
 
+/// <summary>
+/// SuperTokens Passwordless recipe: creates and consumes email/phone sign-in
+/// codes and normalizes phone numbers via libphonenumber.
+/// </summary>
 public class PasswordlessRecipe : IOverridableRecipe
 {
     private readonly ICoreApiClient _coreApiClient;
@@ -90,7 +94,7 @@ public class PasswordlessRecipe : IOverridableRecipe
 
         var response = await _coreApiClient.CreatePasswordlessCodeAsync(
             new CreateCodeRequest { Email = email, PhoneNumber = phoneNumber, DeviceId = deviceId }, tenantId, ct);
-        if (response.Status != "OK")
+        if (response.Status != Constants.Status.Ok)
             throw new SuperTokensException($"Failed to create passwordless code: {response.Status}");
         return (response.DeviceId ?? "", response.PreAuthSessionId ?? "", response.LinkCode ?? "");
     }
@@ -104,7 +108,7 @@ public class PasswordlessRecipe : IOverridableRecipe
 
         var response = await _coreApiClient.ConsumePasswordlessCodeAsync(
             new ConsumeCodeRequest { PreAuthSessionId = preAuthSessionId, LinkCode = linkCode, DeviceId = deviceId, UserInputCode = userInputCode }, tenantId, ct);
-        if (response.Status != "OK")
+        if (response.Status != Constants.Status.Ok)
             throw new SuperTokensException($"Failed to consume passwordless code: {response.Status}");
         return response.User ?? throw new SuperTokensException("ConsumeCode returned OK but no user");
     }

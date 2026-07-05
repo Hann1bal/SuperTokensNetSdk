@@ -3,6 +3,10 @@ using SuperTokensSDK.Net.Core.Models;
 
 namespace SuperTokensSDK.Net.Recipes.Totp;
 
+/// <summary>
+/// SuperTokens TOTP recipe: creates and verifies TOTP devices and codes
+/// for two-factor authentication.
+/// </summary>
 public class TotpRecipe
 {
     private readonly ICoreApiClient _coreApiClient;
@@ -18,7 +22,7 @@ public class TotpRecipe
     {
         var response = await _coreApiClient.CreateTotpDeviceAsync(
             new CreateTotpDeviceRequest { UserId = userId, DeviceName = deviceName, Skew = skew, Period = period }, ct);
-        if (response.Status != "OK" || response.Secret == null)
+        if (response.Status != Constants.Status.Ok || response.Secret == null)
             throw new SuperTokensException($"Failed to create TOTP device: {response.Status}");
         return (response.Secret, response.DeviceName ?? deviceName ?? "");
     }
@@ -27,14 +31,14 @@ public class TotpRecipe
     {
         var response = await _coreApiClient.VerifyTotpDeviceAsync(
             new VerifyTotpDeviceRequest { UserId = userId, DeviceName = deviceName, Totp = totp }, ct);
-        return response.Status == "OK";
+        return response.Status == Constants.Status.Ok;
     }
 
     public async Task<bool> VerifyCodeAsync(string userId, string totp, CancellationToken ct = default)
     {
         var response = await _coreApiClient.VerifyTotpCodeAsync(
             new VerifyTotpCodeRequest { UserId = userId, Totp = totp, AllowUnverifiedDevices = false }, ct);
-        return response.Status == "OK";
+        return response.Status == Constants.Status.Ok;
     }
 
     public async Task<List<TotpDevice>> ListDevicesAsync(string userId, CancellationToken ct = default)

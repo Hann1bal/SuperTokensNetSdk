@@ -36,13 +36,18 @@ public class SuperTokensAuthenticationHandler : AuthenticationHandler<SuperToken
             var antiCsrfToken = Context.Request.Cookies[Options.AntiCsrfCookieName]
                 ?? Context.Request.Headers[Core.Constants.HeaderNames.AntiCsrf].FirstOrDefault();
 
+            // Determine if this is a Bearer token request (API client) or cookie-based (browser)
+            var isBearerToken = Context.Request.Headers.ContainsKey("Authorization");
+
             try
             {
                 var verifyResult = await _coreApiClient.VerifySessionAsync(new VerifySessionRequest
                 {
                     AccessToken = accessToken,
-                    AntiCsrfToken = antiCsrfToken,
-                    DoAntiCsrfCheck = !string.IsNullOrEmpty(antiCsrfToken)
+                    EnableAntiCsrf = Options.EnableAntiCsrf,
+                    // Cookie-based sessions must always pass anti-CSRF check when enabled.
+                    DoAntiCsrfCheck = !isBearerToken && Options.EnableAntiCsrf,
+                    AntiCsrfToken = antiCsrfToken
                 }, Context.RequestAborted);
 
                 if (string.IsNullOrWhiteSpace(verifyResult.Session?.UserId))

@@ -8,13 +8,21 @@ namespace SuperTokensSDK.Net.Recipes.Session;
 /// </summary>
 public class SessionContainer
 {
+    /// <summary>Opaque handle identifying this session in SuperTokens Core.</summary>
     public string SessionHandle { get; set; }
+    /// <summary>SuperTokens user id associated with the session.</summary>
     public string UserId { get; set; }
+    /// <summary>Current access token (JWT) when available.</summary>
     public string? AccessToken { get; set; }
+    /// <summary>Current refresh token when available.</summary>
     public string? RefreshToken { get; set; }
+    /// <summary>Anti-CSRF token bound to this session, if enabled.</summary>
     public string? AntiCsrfToken { get; set; }
+    /// <summary>UTC expiry of the current access token.</summary>
     public DateTime AccessTokenExpiry { get; set; }
+    /// <summary>UTC expiry of the current refresh token.</summary>
     public DateTime RefreshTokenExpiry { get; set; }
+    /// <summary>Custom JWT payload (claims) attached to the session.</summary>
     public Dictionary<string, object> UserDataInJwt { get; set; }
 
     public SessionContainer(string sessionHandle, string userId, Dictionary<string, object>? userDataInJwt = null)

@@ -2,6 +2,11 @@ using SuperTokensSDK.Net.Core;
 
 namespace SuperTokensSDK.Net.Recipes.EmailVerification;
 
+/// <summary>
+/// SuperTokens EmailVerification recipe: issues verification tokens,
+/// verifies emails, queries verification status and revokes/unverifies
+/// pending verifications.
+/// </summary>
 public class EmailVerificationRecipe
 {
     private readonly ICoreApiClient _coreApiClient;
