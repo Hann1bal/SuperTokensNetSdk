@@ -40,7 +40,17 @@ public class EmailDeliveryTests
 
         Assert.Equal(string.Empty, options.Host);
         Assert.Equal(587, options.Port);
-        Assert.True(options.EnableSsl);
+        Assert.Equal(SmtpSecureMode.Auto, options.Secure);
+        Assert.Null(options.TlsProtocols);
         Assert.Equal(string.Empty, options.FromEmail);
+    }
+
+    [Fact]
+    public void SmtpOptions_SecureMode_CanBeSet()
+    {
+        var options = new SmtpOptions { Secure = SmtpSecureMode.ImplicitSsl, Port = 465 };
+
+        Assert.Equal(SmtpSecureMode.ImplicitSsl, options.Secure);
+        Assert.Equal(465, options.Port);
     }
 }

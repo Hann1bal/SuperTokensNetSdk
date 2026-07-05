@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <PackageId>SuperTokensSDK.Net</PackageId>
-    <Version>2.6.0</Version>
+    <Version>2.6.1</Version>
     <Authors>Hann1bal</Authors>
     <Company>Hann1bal</Company>
     <Description>SuperTokens integration for ASP.NET Core: CDI client, auth handler, recipes, MCP gateway</Description>
@@ -30,6 +30,8 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="MailKit" Version="4.9.0" />
+    <PackageReference Include="libphonenumber-csharp" Version="9.0.2" />
     <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.0.0" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.0.0" />
     <None Include="..\readme.md" Pack="true" PackagePath="README.md" />

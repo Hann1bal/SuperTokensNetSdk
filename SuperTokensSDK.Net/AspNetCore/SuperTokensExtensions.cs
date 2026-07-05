@@ -188,7 +188,9 @@ public static class SuperTokensExtensions
         services.AddScoped<PasswordlessOverrides>();
 
         services.TryAddScoped<IEmailDelivery, SmtpEmailDelivery>();
-        services.TryAddScoped<ISmsDelivery, TwilioSmsDelivery>();
+
+        // Register HttpClient for TwilioSmsDelivery (avoids socket exhaustion)
+        services.AddHttpClient<ISmsDelivery, TwilioSmsDelivery>();
         return services;
     }
 

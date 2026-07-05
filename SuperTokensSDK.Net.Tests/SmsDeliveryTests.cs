@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using SuperTokensSDK.Net.Ingredients.SmsDelivery;
 
@@ -7,17 +8,49 @@ namespace SuperTokensSDK.Net.Tests;
 
 public class SmsDeliveryTests
 {
+    private static IHttpClientFactory CreateHttpClientFactory()
+    {
+        var services = new ServiceCollection();
+        services.AddHttpClient();
+        return services.BuildServiceProvider().GetRequiredService<IHttpClientFactory>();
+    }
+
     [Fact]
     public void Constructor_NullOptions_Throws()
     {
-        Assert.Throws<ArgumentNullException>(() => new TwilioSmsDelivery(null!));
+        Assert.Throws<ArgumentNullException>(() => new TwilioSmsDelivery(null!, CreateHttpClientFactory()));
+    }
+
+    [Fact]
+    public void Constructor_NullHttpClientFactory_Throws()
+    {
+        var options = Options.Create(new TwilioOptions { From = "+10000000000" });
+        Assert.Throws<ArgumentNullException>(() => new TwilioSmsDelivery(options, null!));
+    }
+
+    [Fact]
+    public void Constructor_NoFromAndNoMessagingServiceSid_Throws()
+    {
+        var options = Options.Create(new TwilioOptions { AccountSid = "sid" });
+        Assert.Throws<InvalidOperationException>(() => new TwilioSmsDelivery(options, CreateHttpClientFactory()));
+    }
+
+    [Fact]
+    public void Constructor_BothFromAndMessagingServiceSid_Throws()
+    {
+        var options = Options.Create(new TwilioOptions
+        {
+            From = "+10000000000",
+            MessagingServiceSid = "MGxxx"
+        });
+        Assert.Throws<InvalidOperationException>(() => new TwilioSmsDelivery(options, CreateHttpClientFactory()));
     }
 
     [Fact]
     public async Task SendSmsAsync_NullInput_Throws()
     {
-        var options = Options.Create(new TwilioOptions { AccountSid = "sid" });
-        var delivery = new TwilioSmsDelivery(options);
+        var options = Options.Create(new TwilioOptions { From = "+10000000000" });
+        var delivery = new TwilioSmsDelivery(options, CreateHttpClientFactory());
 
         await Assert.ThrowsAsync<ArgumentNullException>(() => delivery.SendSmsAsync(null!));
     }
@@ -40,6 +73,7 @@ public class SmsDeliveryTests
 
         Assert.Equal(string.Empty, options.AccountSid);
         Assert.Equal(string.Empty, options.AuthToken);
-        Assert.Equal(string.Empty, options.FromNumber);
+        Assert.Equal(string.Empty, options.From);
+        Assert.Equal(string.Empty, options.MessagingServiceSid);
     }
 }
