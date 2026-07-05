@@ -206,6 +206,60 @@ public class CoreApiClient : ICoreApiClient
             HttpMethod.Post, Constants.TotpPaths.RecipeTotpDeviceRemove, request, Constants.RecipeIds.Totp, cancellationToken);
     }
 
+    public async Task<CreateCodeResponse> CreatePasswordlessCodeAsync(CreateCodeRequest request, string tenantId = "public", CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<CreateCodeRequest, CreateCodeResponse>(
+            HttpMethod.Post, $"{tenantId}{Constants.PasswordlessPaths.RecipeSigninupCode}", request, Constants.RecipeIds.Passwordless, cancellationToken);
+    }
+
+    public async Task<ConsumeCodeResponse> ConsumePasswordlessCodeAsync(ConsumeCodeRequest request, string tenantId = "public", CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<ConsumeCodeRequest, ConsumeCodeResponse>(
+            HttpMethod.Post, $"{tenantId}{Constants.PasswordlessPaths.RecipeSigninupCodeConsume}", request, Constants.RecipeIds.Passwordless, cancellationToken);
+    }
+
+    public async Task<List<string>> GetAllSessionHandlesForUserAsync(string userId, string tenantId = "public", bool fetchAcrossAllTenants = false, CancellationToken cancellationToken = default)
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
+        query["userId"] = userId;
+        query["fetchAcrossAllTenants"] = fetchAcrossAllTenants ? "true" : "false";
+        var response = await GetJsonAsync<GetAllSessionHandlesResponse>(
+            $"{tenantId}/recipe/session/user?{query}", Constants.RecipeIds.Session, cancellationToken);
+        return response.SessionHandles;
+    }
+
+    public async Task<SessionInfo?> GetSessionInformationAsync(string sessionHandle, CancellationToken cancellationToken = default)
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
+        query["sessionHandle"] = sessionHandle;
+        try
+        {
+            var response = await GetJsonAsync<SessionInformationResponse>(
+                $"/recipe/session?{query}", Constants.RecipeIds.Session, cancellationToken);
+            if (response.Status != Constants.Status.Ok)
+                return null;
+            return response.Session;
+        }
+        catch (SuperTokensException)
+        {
+            return null;
+        }
+    }
+
+    public async Task<List<string>> RevokeMultipleSessionsAsync(List<string> sessionHandles, CancellationToken cancellationToken = default)
+    {
+        var response = await SendJsonAsync<RevokeMultipleSessionsRequest, RevokeMultipleSessionsResponse>(
+            HttpMethod.Post, "/recipe/session/remove", new RevokeMultipleSessionsRequest { SessionHandles = sessionHandles }, Constants.RecipeIds.Session, cancellationToken);
+        return response.SessionHandlesRevoked;
+    }
+
+    public async Task<List<string>> RevokeAllSessionsForUserAsync(string userId, string tenantId = "public", bool revokeAcrossAllTenants = false, CancellationToken cancellationToken = default)
+    {
+        var response = await SendJsonAsync<RevokeAllSessionsRequest, RevokeAllSessionsResponse>(
+            HttpMethod.Post, $"{tenantId}/recipe/session/remove", new RevokeAllSessionsRequest { UserId = userId, RevokeAcrossAllTenants = revokeAcrossAllTenants }, Constants.RecipeIds.Session, cancellationToken);
+        return response.SessionHandlesRevoked;
+    }
+
     #endregion
 
     #region HTTP helpers

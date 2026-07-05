@@ -82,9 +82,28 @@ public class SessionRecipe
         return CreateContainer(response);
     }
 
-    public async Task RevokeSessionAsync(string sessionHandle, CancellationToken cancellationToken = default)
+    public async Task<List<SessionInfo>> GetActiveSessionsAsync(string userId, string tenantId = "public", CancellationToken ct = default)
     {
-        await _coreApiClient.RevokeSessionAsync(new RevokeSessionRequest { SessionHandle = sessionHandle }, cancellationToken);
+        var handles = await _coreApiClient.GetAllSessionHandlesForUserAsync(userId, tenantId, false, ct);
+        var sessions = new List<SessionInfo>();
+        foreach (var handle in handles)
+        {
+            var info = await _coreApiClient.GetSessionInformationAsync(handle, ct);
+            if (info != null) sessions.Add(info);
+        }
+        return sessions;
+    }
+
+    public async Task<int> RevokeAllSessionsAsync(string userId, string tenantId = "public", CancellationToken ct = default)
+    {
+        var revoked = await _coreApiClient.RevokeAllSessionsForUserAsync(userId, tenantId, false, ct);
+        return revoked.Count;
+    }
+
+    public async Task<bool> RevokeSessionAsync(string sessionHandle, CancellationToken ct = default)
+    {
+        var revoked = await _coreApiClient.RevokeMultipleSessionsAsync(new List<string> { sessionHandle }, ct);
+        return revoked.Contains(sessionHandle);
     }
 
     private static SessionContainer CreateContainer(CreateOrRefreshAPIResponse response)

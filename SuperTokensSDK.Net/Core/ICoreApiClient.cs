@@ -25,4 +25,14 @@ public interface ICoreApiClient
     Task<VerifyTotpCodeResponse> VerifyTotpCodeAsync(VerifyTotpCodeRequest request, CancellationToken cancellationToken = default);
     Task<ListTotpDevicesResponse> ListTotpDevicesAsync(string userId, CancellationToken cancellationToken = default);
     Task<RemoveTotpDeviceResponse> RemoveTotpDeviceAsync(RemoveTotpDeviceRequest request, CancellationToken cancellationToken = default);
+
+    // Passwordless recipe
+    Task<CreateCodeResponse> CreatePasswordlessCodeAsync(CreateCodeRequest request, string tenantId = "public", CancellationToken cancellationToken = default);
+    Task<ConsumeCodeResponse> ConsumePasswordlessCodeAsync(ConsumeCodeRequest request, string tenantId = "public", CancellationToken cancellationToken = default);
+
+    // Session management
+    Task<List<string>> GetAllSessionHandlesForUserAsync(string userId, string tenantId = "public", bool fetchAcrossAllTenants = false, CancellationToken cancellationToken = default);
+    Task<SessionInfo?> GetSessionInformationAsync(string sessionHandle, CancellationToken cancellationToken = default);
+    Task<List<string>> RevokeMultipleSessionsAsync(List<string> sessionHandles, CancellationToken cancellationToken = default);
+    Task<List<string>> RevokeAllSessionsForUserAsync(string userId, string tenantId = "public", bool revokeAcrossAllTenants = false, CancellationToken cancellationToken = default);
 }

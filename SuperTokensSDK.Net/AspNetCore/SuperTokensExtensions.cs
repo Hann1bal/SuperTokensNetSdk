@@ -9,6 +9,7 @@ using SuperTokensSDK.Net.Configuration;
 using SuperTokensSDK.Net.Core;
 using SuperTokensSDK.Net.Core.Models;
 using SuperTokensSDK.Net.Recipes.EmailPassword;
+using SuperTokensSDK.Net.Recipes.Passwordless;
 using SuperTokensSDK.Net.Recipes.Session;
 using SuperTokensSDK.Net.Recipes.Totp;
 using SuperTokensSDK.Net.Recipes.UserMetadata;
@@ -153,6 +154,7 @@ public static class SuperTokensExtensions
         services.AddScoped<UserRolesRecipe>();
         services.AddScoped<UserMetadataRecipe>();
         services.AddScoped<TotpRecipe>();
+        services.AddScoped<PasswordlessRecipe>();
         return services;
     }
 

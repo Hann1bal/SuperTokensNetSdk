@@ -21,6 +21,19 @@ public static class Constants
         public const string UserRoles = "userroles";
         public const string UserMetadata = "usermetadata";
         public const string Totp = "totp";
+        public const string Passwordless = "passwordless";
+    }
+
+    /// <summary>
+    /// Passwordless recipe CDI paths.
+    /// </summary>
+    public static class PasswordlessPaths
+    {
+        public const string RecipeSigninupCode = "/recipe/signinup/code";
+        public const string RecipeSigninupCodeConsume = "/recipe/signinup/code/consume";
+        public const string RecipeSigninupCodeCheck = "/recipe/signinup/code/check";
+        public const string RecipeSigninupCodes = "/recipe/signinup/codes";
+        public const string RecipeSigninupCodesRemove = "/recipe/signinup/codes/remove";
     }
 
     /// <summary>
