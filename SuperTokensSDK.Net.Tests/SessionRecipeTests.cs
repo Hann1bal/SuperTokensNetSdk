@@ -185,14 +185,14 @@ public class SessionRecipeTests
     [Fact]
     public async Task RevokeSessionAsync_CallsCore_WithSessionHandle()
     {
-        _coreMock.Setup(c => c.RevokeSessionAsync(It.IsAny<RevokeSessionRequest>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new RevokeSessionResponse { Status = "OK" });
+        _coreMock.Setup(c => c.RevokeMultipleSessionsAsync(It.IsAny<List<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<string> { "sh-revoke" });
 
         var recipe = new SessionRecipe(_coreMock.Object);
         await recipe.RevokeSessionAsync("sh-revoke");
 
-        _coreMock.Verify(c => c.RevokeSessionAsync(
-            It.Is<RevokeSessionRequest>(r => r.SessionHandle == "sh-revoke"),
+        _coreMock.Verify(c => c.RevokeMultipleSessionsAsync(
+            It.Is<List<string>>(l => l.Contains("sh-revoke")),
             It.IsAny<CancellationToken>()), Times.Once);
     }
 

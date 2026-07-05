@@ -3,7 +3,7 @@
 SuperTokens integration for ASP.NET Core. CDI 5.0 client, authentication handler, session middleware, six recipe wrappers (EmailPassword, Session, UserRoles, UserMetadata, TOTP, Passwordless) and an MCP gateway.
 
 - **Package**: `SuperTokensSDK.Net`
-- **Version**: 2.4.0
+- **Version**: 2.4.1
 - **Target framework**: net10.0
 - **Dependencies**: none. The package references only the `Microsoft.AspNetCore.App` shared framework. No external NuGet packages.
 
@@ -12,19 +12,19 @@ SuperTokens integration for ASP.NET Core. CDI 5.0 client, authentication handler
 The package is available on NuGet.org:
 
 ```bash
-dotnet add package SuperTokensSDK.Net --version 2.4.0
+dotnet add package SuperTokensSDK.Net --version 2.4.1
 ```
 
 Or via the Package Manager Console:
 
 ```powershell
-Install-Package SuperTokensSDK.Net -Version 2.4.0
+Install-Package SuperTokensSDK.Net -Version 2.4.1
 ```
 
 Or in the .csproj:
 
 ```xml
-<PackageReference Include="SuperTokensSDK.Net" Version="2.4.0" />
+<PackageReference Include="SuperTokensSDK.Net" Version="2.4.1" />
 ```
 
 ## Quick start

@@ -102,8 +102,8 @@ public class McpToolsTests
     [Fact]
     public async Task RevokeSessionAsync_CallsSessionRecipe()
     {
-        _sessionCoreMock.Setup(c => c.RevokeSessionAsync(It.Is<RevokeSessionRequest>(r => r.SessionHandle == "sh-revoke"), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new RevokeSessionResponse { Status = "OK" });
+        _sessionCoreMock.Setup(c => c.RevokeMultipleSessionsAsync(It.Is<List<string>>(l => l.Contains("sh-revoke")), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<string> { "sh-revoke" });
 
         var result = await _tools.RevokeSessionAsync(new Dictionary<string, object> { ["sessionHandle"] = "sh-revoke" }, CancellationToken.None);
 
