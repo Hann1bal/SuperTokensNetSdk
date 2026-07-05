@@ -1,6 +1,6 @@
 # SuperTokensSDK.Net
 
-Official SuperTokens integration package for ASP.NET Core applications.
+UNOFFICIAL! SuperTokens integration package for ASP.NET Core applications.
 
 ## Features
 
