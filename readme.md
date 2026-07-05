@@ -250,7 +250,7 @@ catch (SuperTokensException ex)
 
 The full API reference covers every class, method, model, and constant in the SDK:
 
-[Full API reference](./docs/api/supertokens-sdk.md)
+[Full API reference](./docs/supertokens-sdk.md)
 
 ## What the SDK provides
 
