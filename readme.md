@@ -1,6 +1,6 @@
 # SuperTokensSDK.Net
 
-SuperTokens integration for ASP.NET Core. CDI 5.0 client, authentication handler, session middleware, nine recipe wrappers (EmailPassword, Session, UserRoles, UserMetadata, TOTP, Passwordless, EmailVerification, Jwt, Multitenancy) and an MCP gateway.
+SuperTokens integration for ASP.NET Core. CDI 5.0 client, authentication handler, session middleware, twelve recipe wrappers (EmailPassword, Session, UserRoles, UserMetadata, TOTP, Passwordless, EmailVerification, Jwt, Multitenancy, ThirdParty, Dashboard), EmailDelivery and SmsDelivery ingredients, an API dispatching middleware, and an MCP gateway.
 
 - **Package**: `SuperTokensSDK.Net`
 - **Version**: 2.6.0
@@ -55,6 +55,7 @@ builder.Services.AddAuthorization();
 var app = builder.Build();
 
 app.UseSuperTokensMiddleware();
+app.UseSuperTokensApi();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
@@ -206,6 +207,49 @@ app.MapGet("/users/{userId}/metadata", async (UserMetadataRecipe metadata, strin
 });
 ```
 
+### ThirdParty OAuth signin
+
+```csharp
+using SuperTokensSDK.Net.Recipes.ThirdParty;
+
+app.MapPost("/auth/signinup", async (
+    ThirdPartyRecipe thirdParty,
+    string providerId,
+    string code) =>
+{
+    var response = await thirdParty.SignInUpAsync(
+        providerId,
+        code,
+        redirectURI: "https://example.com/callback");
+
+    if (response is null)
+        return Results.Unauthorized();
+
+    return Results.Ok(new
+    {
+        response.User.Id,
+        response.User.Email
+    });
+});
+```
+
+### Dashboard user listing
+
+```csharp
+using SuperTokensSDK.Net.Recipes.Dashboard;
+
+app.MapGet("/admin/users", async (
+    DashboardRecipe dashboard,
+    int? limit,
+    string? paginationToken) =>
+{
+    var result = await dashboard.GetUsersAsync(
+        limit: limit ?? 100,
+        paginationToken: paginationToken);
+    return Results.Ok(result);
+}).RequireAuthorization("admin");
+```
+
 ### Error handling
 
 The SDK throws typed exceptions for every non-OK status returned by Core. Catch them to send the right HTTP response.
@@ -242,6 +286,64 @@ catch (SuperTokensException ex)
 }
 ```
 
+## API dispatching middleware
+
+`SuperTokensApiMiddleware` proxies `/auth/*` frontend API calls to the SuperTokens Core CDI endpoints. Call `app.UseSuperTokensApi()` after `app.UseSuperTokensMiddleware()` to expose the frontend API on your domain.
+
+The middleware handles:
+
+- Route mapping for EmailPassword, Session, Passwordless, ThirdParty, EmailVerification, and TOTP recipes
+- CORS preflight (OPTIONS) with `Access-Control-Allow-*` headers
+- Raw request forwarding through `ICoreApiClient.ProxyToCoreAsync`
+
+```csharp
+var app = builder.Build();
+
+app.UseSuperTokensMiddleware();
+app.UseSuperTokensApi();
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapControllers();
+app.Run();
+```
+
+## Overridable recipe interfaces
+
+Each recipe has a matching override class with nullable delegate properties. Set a delegate to replace the default behavior. Recipes check the override before calling Core.
+
+Override classes live in `SuperTokensSDK.Net.Core`:
+
+- `EmailPasswordOverrides`
+- `SessionOverrides`
+- `PasswordlessOverrides`
+- `ThirdPartyOverrides`
+
+```csharp
+using SuperTokensSDK.Net.Core;
+using SuperTokensSDK.Net.Recipes.EmailPassword;
+
+builder.Services.AddSuperTokens(options =>
+{
+    options.CoreUri = "http://localhost:3567";
+    options.ApiKey = "your-core-api-key";
+    options.AppName = "MyApp";
+    options.ApiDomain = "https://api.example.com";
+    options.WebsiteDomain = "https://example.com";
+});
+
+// Replace the default SignUpAsync with a custom implementation
+builder.Services.Configure<EmailPasswordOverrides>(overrides =>
+{
+    overrides.SignUp = async (email, password, ct) =>
+    {
+        // Custom logic here, then return a UserResponse or null
+        return null;
+    };
+});
+```
+
+When a delegate is null, the recipe falls back to its default Core call. This lets you override one method without reimplementing the rest.
+
 ## API reference
 
 The full API reference covers every class, method, model, and constant in the SDK:
@@ -259,6 +361,12 @@ The full API reference covers every class, method, model, and constant in the SD
 | Session recipe | `SessionRecipe`, `SessionContainer` | `SuperTokensSDK.Net.Recipes.Session` |
 | UserRoles recipe | `UserRolesRecipe` | `SuperTokensSDK.Net.Recipes.UserRoles` |
 | UserMetadata recipe | `UserMetadataRecipe` | `SuperTokensSDK.Net.Recipes.UserMetadata` |
+| ThirdParty recipe | `ThirdPartyRecipe` | `SuperTokensSDK.Net.Recipes.ThirdParty` |
+| Dashboard recipe | `DashboardRecipe` | `SuperTokensSDK.Net.Recipes.Dashboard` |
+| API middleware | `SuperTokensApiMiddleware` | `SuperTokensSDK.Net.AspNetCore` |
+| Email delivery | `IEmailDelivery`, `SmtpEmailDelivery` | `SuperTokensSDK.Net.Ingredients.EmailDelivery` |
+| SMS delivery | `ISmsDelivery`, `TwilioSmsDelivery` | `SuperTokensSDK.Net.Ingredients.SmsDelivery` |
+| Recipe overrides | `RecipeOverrides`, `IOverridableRecipe` | `SuperTokensSDK.Net.Core` |
 | Auth handler | `SuperTokensAuthenticationHandler` | `SuperTokensSDK.Net.AspNetCore` |
 | Session middleware | `SuperTokensMiddleware` | `SuperTokensSDK.Net.AspNetCore` |
 | MCP gateway | `McpGateway`, `McpTools` | `SuperTokensSDK.Net.Mcp` |

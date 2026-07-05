@@ -1,6 +1,6 @@
 # Recipe Reference
 
-The SDK implements four SuperTokens recipes. Each recipe is a thin wrapper around `CoreApiClient` that handles request construction and response parsing. All recipes are registered as scoped services by `AddSuperTokens` and can be injected into controllers, minimal APIs, or background services.
+The SDK implements twelve SuperTokens recipes. Each recipe is a thin wrapper around `CoreApiClient` that handles request construction and response parsing. All recipes are registered as scoped services by `AddSuperTokens` and can be injected into controllers, minimal APIs, or background services.
 
 | Recipe | Namespace | Purpose |
 |---|---|---|
@@ -8,6 +8,13 @@ The SDK implements four SuperTokens recipes. Each recipe is a thin wrapper aroun
 | `SessionRecipe` | `SuperTokensSDK.Net.Recipes.Session` | Session creation, verification, refresh, revocation |
 | `UserRolesRecipe` | `SuperTokensSDK.Net.Recipes.UserRoles` | Role assignment, removal, querying |
 | `UserMetadataRecipe` | `SuperTokensSDK.Net.Recipes.UserMetadata` | Per-user metadata storage and retrieval |
+| `TotpRecipe` | `SuperTokensSDK.Net.Recipes.Totp` | TOTP-based two-factor authentication |
+| `PasswordlessRecipe` | `SuperTokensSDK.Net.Recipes.Passwordless` | Email and phone based magic link or OTP login |
+| `EmailVerificationRecipe` | `SuperTokensSDK.Net.Recipes.EmailVerification` | Email verification flow |
+| `JwtRecipe` | `SuperTokensSDK.Net.Recipes.Jwt` | JWT creation and verification outside of sessions |
+| `MultitenancyRecipe` | `SuperTokensSDK.Net.Recipes.Multitenancy` | Multi-tenant configuration and login methods |
+| `ThirdPartyRecipe` | `SuperTokensSDK.Net.Recipes.ThirdParty` | OAuth and social login |
+| `DashboardRecipe` | `SuperTokensSDK.Net.Recipes.Dashboard` | Dashboard API for user management |
 
 ## EmailPasswordRecipe
 
@@ -558,17 +565,261 @@ if (profile != null)
 
 The method serializes the metadata dictionary to JSON, then deserializes it to `T`. This means property names must match the metadata keys (case-insensitive due to `JsonSerializerOptions`).
 
+## ThirdPartyRecipe
+
+Handles OAuth and social login. Maps to the `thirdparty` recipe ID in Core. Supports six built-in providers (Google, GitHub, Apple, Discord, Facebook, GitLab) and custom providers configured through `TypeProvider` and `TypeProviderConfig`.
+
+### SignInUpAsync
+
+Signs in or signs up a user with a third-party provider. Core creates the user on first sign-in and returns the existing user on subsequent sign-ins.
+
+```csharp
+public Task<SignInUpResponse?> SignInUpAsync(
+    string providerId,
+    string code,
+    string redirectURI,
+    CancellationToken cancellationToken = default)
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `providerId` | `string` | Provider identifier, e.g. `google`, `github`. |
+| `code` | `string` | Authorization code returned by the provider. |
+| `redirectURI` | `string` | Redirect URI registered with the provider. |
+| `cancellationToken` | `CancellationToken` | Optional cancellation token. |
+
+**Returns:** `Task<SignInUpResponse?>` with the `ThirdPartyUser` and `RecipeUserId`. Returns `null` if Core does not return a user.
+
+**Example:**
+
+```csharp
+using SuperTokensSDK.Net.Recipes.ThirdParty;
+
+app.MapPost("/auth/signinup/google", async (
+    ThirdPartyRecipe thirdParty,
+    string code) =>
+{
+    var response = await thirdParty.SignInUpAsync(
+        "google",
+        code,
+        redirectURI: "https://example.com/callback");
+
+    if (response is null)
+        return Results.Unauthorized();
+
+    return Results.Ok(new
+    {
+        response.User.Id,
+        response.User.Email
+    });
+});
+```
+
+### GetProvider
+
+Returns the `TypeProvider` configuration for a given provider ID. Useful for looking up the built-in providers before redirecting the user to the OAuth flow.
+
+```csharp
+public TypeProvider? GetProvider(string providerId)
+```
+
+**Example:**
+
+```csharp
+using SuperTokensSDK.Net.Recipes.ThirdParty;
+
+app.MapGet("/auth/providers/{providerId}", async (
+    ThirdPartyRecipe thirdParty,
+    string providerId) =>
+{
+    var provider = thirdParty.GetProvider(providerId);
+    if (provider is null)
+        return Results.NotFound();
+
+    return Results.Ok(new
+    {
+        provider.Config.ClientId,
+        provider.Config.AuthorizationEndpoint
+    });
+});
+
+// List all built-in providers
+var google = BuiltInProviders.Google;
+var github = BuiltInProviders.GitHub;
+```
+
+### GetUsersByEmailAsync
+
+Returns all third-party users that share a given email address. A user may have linked accounts across multiple providers.
+
+```csharp
+public Task<GetUsersByEmailResponse?> GetUsersByEmailAsync(
+    string email,
+    CancellationToken cancellationToken = default)
+```
+
+**Returns:** `Task<GetUsersByEmailResponse?>` with a list of `UserByEmailItem` entries, one per matching user.
+
+**Example:**
+
+```csharp
+var result = await thirdParty.GetUsersByEmailAsync("user@example.com");
+if (result?.Users is not null)
+{
+    foreach (var user in result.Users)
+        Console.WriteLine($"{user.Id} - {user.ThirdParty.Id}");
+}
+```
+
+### ManuallyCreateOrUpdateUserAsync
+
+Creates or updates a third-party user without going through the OAuth flow. Useful for imports, migrations, and admin tooling.
+
+```csharp
+public Task<ManuallyCreateOrUpdateUserResponse?> ManuallyCreateOrUpdateUserAsync(
+    ManuallyCreateOrUpdateUserRequest request,
+    CancellationToken cancellationToken = default)
+```
+
+**Example:**
+
+```csharp
+var request = new ManuallyCreateOrUpdateUserRequest
+{
+    Email = "user@example.com",
+    ProviderId = "google",
+    ProviderUserId = "google-user-123"
+};
+
+var response = await thirdParty.ManuallyCreateOrUpdateUserAsync(request);
+```
+
+## DashboardRecipe
+
+Exposes the SuperTokens Dashboard API for user management. Maps to the `dashboard` recipe ID in Core. Provides 13 methods covering sign-in, user listing, user details, password updates, metadata updates, session management, search tags, and analytics.
+
+### SignInAsync
+
+Authenticates a dashboard user (typically an admin) and returns a session.
+
+```csharp
+public Task<bool> SignInAsync(
+    string email,
+    string password,
+    CancellationToken cancellationToken = default)
+```
+
+**Returns:** `Task<bool>`, `true` if sign-in succeeded, `false` otherwise.
+
+**Example:**
+
+```csharp
+using SuperTokensSDK.Net.Recipes.Dashboard;
+
+app.MapPost("/dashboard/signin", async (
+    DashboardRecipe dashboard,
+    string email, string password) =>
+{
+    var ok = await dashboard.SignInAsync(email, password);
+    return ok ? Results.Ok() : Results.Unauthorized();
+});
+```
+
+### GetUsersAsync
+
+Lists users with optional pagination. Returns a page of users and a pagination token for the next page.
+
+```csharp
+public Task<GetUsersResponse?> GetUsersAsync(
+    int? limit = null,
+    string? paginationToken = null,
+    CancellationToken cancellationToken = default)
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `limit` | `int?` | Maximum number of users to return. |
+| `paginationToken` | `string?` | Token returned by the previous call. |
+| `cancellationToken` | `CancellationToken` | Optional cancellation token. |
+
+**Example:**
+
+```csharp
+app.MapGet("/admin/users", async (
+    DashboardRecipe dashboard,
+    int? limit,
+    string? paginationToken) =>
+{
+    var result = await dashboard.GetUsersAsync(
+        limit: limit ?? 100,
+        paginationToken: paginationToken);
+    return Results.Ok(result);
+}).RequireAuthorization("admin");
+```
+
+### GetUsersCountAsync
+
+Returns the total number of users across all recipes.
+
+```csharp
+public Task<long> GetUsersCountAsync(
+    CancellationToken cancellationToken = default)
+```
+
+**Returns:** `Task<long>` with the user count.
+
+**Example:**
+
+```csharp
+app.MapGet("/admin/users/count", async (DashboardRecipe dashboard) =>
+{
+    var count = await dashboard.GetUsersCountAsync();
+    return Results.Ok(new { count });
+}).RequireAuthorization("admin");
+```
+
+## Overridable recipe interfaces
+
+Each recipe has a matching override class in `SuperTokensSDK.Net.Core` with nullable delegate properties. Set a delegate to replace the default behavior. Recipes check the override before calling Core, so you can swap one method without reimplementing the rest.
+
+Override classes:
+
+| Override class | Recipe |
+|---|---|
+| `EmailPasswordOverrides` | `EmailPasswordRecipe` |
+| `SessionOverrides` | `SessionRecipe` |
+| `PasswordlessOverrides` | `PasswordlessRecipe` |
+| `ThirdPartyOverrides` | `ThirdPartyRecipe` |
+
+Each property is a nullable `Func` matching the recipe method signature. When the property is null, the recipe falls back to its default Core call.
+
+**Example: replacing EmailPassword SignUpAsync**
+
+```csharp
+using SuperTokensSDK.Net.Core;
+using SuperTokensSDK.Net.Recipes.EmailPassword;
+
+builder.Services.Configure<EmailPasswordOverrides>(overrides =>
+{
+    overrides.SignUp = async (email, password, ct) =>
+    {
+        // Custom logic here, then return a UserResponse or null
+        return null;
+    };
+});
+```
+
+The `RecipeOverrides` base class and `IOverridableRecipe` interface define the contract. All override classes are registered as scoped services by `SuperTokensExtensions`, so you configure them through the options pattern before calling `AddSuperTokens`.
+
 ## Missing Recipes
 
-The official SuperTokens SDK supports additional recipes that this SDK does not implement yet:
+All major SuperTokens recipes are now implemented by the SDK: EmailPassword, Session, UserRoles, UserMetadata, TOTP, Passwordless, EmailVerification, JWT, Multitenancy, ThirdParty, and Dashboard.
 
-- **ThirdPartyEmailPassword**: OAuth and social login (Google, GitHub, Apple, etc.)
-- **Passwordless**: Email and phone based magic link or OTP login
-- **MultiTenancy**: Multi-tenant configuration and login methods
-- **PhoneNumber**: Phone number based authentication
-- **JWT**: JWT creation and verification outside of sessions
-
-If you need any of these recipes, you can call the Core API directly through `ICoreApiClient` or extend the SDK by adding new recipe classes.
+If you need a recipe that is not listed above, you can call the Core API directly through `ICoreApiClient` or extend the SDK by adding a new recipe class.
 
 ## What's Next
 

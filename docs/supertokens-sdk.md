@@ -1,17 +1,19 @@
 # SuperTokensSDK.Net API Reference
 
-**Package**: `SuperTokensSDK.Net` 2.2.0
+**Package**: `SuperTokensSDK.Net` 2.6.0
 **Target framework**: net10.0
 **Dependencies**: none (only `Microsoft.AspNetCore.App` shared framework reference)
 
 ## Overview
 
-SuperTokensSDK.Net is a CDI 5.0 client for the SuperTokens Core service, built for ASP.NET Core. The SDK has four parts:
+SuperTokensSDK.Net is a CDI 5.0 client for the SuperTokens Core service, built for ASP.NET Core. The SDK has six parts:
 
 1. **CoreApiClient** talks to SuperTokens Core over HTTP using the Core Driver Interface. It handles CDI version negotiation, multi-host failover, rate-limit retries, and typed error responses.
-2. **Recipes** wrap the CoreApiClient with high-level operations for EmailPassword, Session, UserRoles, and UserMetadata.
-3. **ASP.NET Core integration** provides an authentication handler, a claims transformation, and a session validation middleware that populates `HttpContext.User` on every request.
-4. **MCP gateway** exposes five SuperTokens operations as Model Context Protocol tool definitions.
+2. **Recipes** wrap the CoreApiClient with high-level operations for EmailPassword, Session, UserRoles, UserMetadata, TOTP, Passwordless, EmailVerification, Jwt, Multitenancy, ThirdParty, and Dashboard.
+3. **Ingredients** provide pluggable delivery channels: `IEmailDelivery` with `SmtpEmailDelivery` and `ISmsDelivery` with `TwilioSmsDelivery`.
+4. **ASP.NET Core integration** provides an authentication handler, a claims transformation, and a session validation middleware that populates `HttpContext.User` on every request.
+5. **API dispatching middleware** (`SuperTokensApiMiddleware`) proxies `/auth/*` frontend API calls to SuperTokens Core CDI endpoints with CORS preflight support.
+6. **MCP gateway** exposes five SuperTokens operations as Model Context Protocol tool definitions.
 
 The SDK follows the SuperTokens recipe pattern. Each recipe is a scoped service that depends on `ICoreApiClient`. You inject recipes into your controllers and endpoints directly.
 ## Links
@@ -25,7 +27,19 @@ The SDK follows the SuperTokens recipe pattern. Each recipe is a scoped service 
 
 ## Installation
 
-The package ships as a local NuGet feed artifact. Place the `.nupkg` in your feed directory and reference it in `nuget.config`:
+The package is published on NuGet.org. Add it with the .NET CLI:
+
+```bash
+dotnet add package SuperTokensSDK.Net --version 2.6.0
+```
+
+Or via the Package Manager Console:
+
+```powershell
+Install-Package SuperTokensSDK.Net -Version 2.6.0
+```
+
+For local development or offline feeds, place the `.nupkg` in your feed directory and reference it in `nuget.config`:
 
 ```xml
 <configuration>
@@ -33,10 +47,6 @@ The package ships as a local NuGet feed artifact. Place the `.nupkg` in your fee
     <add key="LocalPackages" value="./local-packages" />
   </packageSources>
 </configuration>
-```
-
-```bash
-dotnet add package SuperTokensSDK.Net --version 2.2.0
 ```
 
 ## Configuration
@@ -77,7 +87,7 @@ File: `AspNetCore/SuperTokensExtensions.cs`
 
 #### `AddSuperTokens(Action<SuperTokensOptions> configure)`
 
-Registers the options, the `CoreApiClient` as an `HttpClient`-backed `ICoreApiClient`, and all four recipes as scoped services.
+Registers the options, the `CoreApiClient` as an `HttpClient`-backed `ICoreApiClient`, and all twelve recipes as scoped services.
 
 ```csharp
 builder.Services.AddSuperTokens(options =>
