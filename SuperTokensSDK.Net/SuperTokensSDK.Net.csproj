@@ -3,17 +3,34 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <PackageId>SuperTokensSDK.Net</PackageId>
-    <Version>2.2.0</Version>
+    <Version>2.3.0</Version>
     <Authors>HistoneDB Team</Authors>
     <Company>None</Company>
-    <Description>SuperTokens integration for ASP.NET Core — CDI client, auth handler, recipes, MCP gateway</Description>
+    <Description>SuperTokens integration for ASP.NET Core: CDI client, auth handler, recipes, MCP gateway</Description>
     <PackageTags>supertokens auth authentication aspnetcore</PackageTags>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <!-- NuGet publishing metadata -->
+    <RepositoryUrl>https://github.com/Hann1bal/SuperTokensNetSdk</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/Hann1bal/SuperTokensNetSdk</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <!-- Symbol package -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+
+    <!-- Deterministic builds -->
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
   </PropertyGroup>
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <None Include="..\readme.md" Pack="true" PackagePath="README.md" />
   </ItemGroup>
 
 </Project>

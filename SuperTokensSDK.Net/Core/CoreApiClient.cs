@@ -174,6 +174,38 @@ public class CoreApiClient : ICoreApiClient
             HttpMethod.Put, Constants.Paths.RecipeUserMetadata, request, Constants.RecipeIds.UserMetadata, cancellationToken);
     }
 
+    public async Task<CreateTotpDeviceResponse> CreateTotpDeviceAsync(CreateTotpDeviceRequest request, CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<CreateTotpDeviceRequest, CreateTotpDeviceResponse>(
+            HttpMethod.Post, Constants.TotpPaths.RecipeTotpDevice, request, Constants.RecipeIds.Totp, cancellationToken);
+    }
+
+    public async Task<VerifyTotpDeviceResponse> VerifyTotpDeviceAsync(VerifyTotpDeviceRequest request, CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<VerifyTotpDeviceRequest, VerifyTotpDeviceResponse>(
+            HttpMethod.Post, Constants.TotpPaths.RecipeTotpDeviceVerify, request, Constants.RecipeIds.Totp, cancellationToken);
+    }
+
+    public async Task<VerifyTotpCodeResponse> VerifyTotpCodeAsync(VerifyTotpCodeRequest request, CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<VerifyTotpCodeRequest, VerifyTotpCodeResponse>(
+            HttpMethod.Post, Constants.TotpPaths.RecipeTotpVerify, request, Constants.RecipeIds.Totp, cancellationToken);
+    }
+
+    public async Task<ListTotpDevicesResponse> ListTotpDevicesAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
+        query["userId"] = userId;
+        return await GetJsonAsync<ListTotpDevicesResponse>(
+            $"{Constants.TotpPaths.RecipeTotpDeviceList}?{query}", Constants.RecipeIds.Totp, cancellationToken);
+    }
+
+    public async Task<RemoveTotpDeviceResponse> RemoveTotpDeviceAsync(RemoveTotpDeviceRequest request, CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<RemoveTotpDeviceRequest, RemoveTotpDeviceResponse>(
+            HttpMethod.Post, Constants.TotpPaths.RecipeTotpDeviceRemove, request, Constants.RecipeIds.Totp, cancellationToken);
+    }
+
     #endregion
 
     #region HTTP helpers

@@ -13,3 +13,17 @@ obj/
 ## OS
 .DS_Store
 Thumbs.db
+
+## Build artifacts
+artifacts/
+TestResults/
+
+## Local-only files — NOT for git
+nuget.config
+.env
+.env.*
+*.local.config
+*.pfx
+*.key
+*.pem
+*.secret
