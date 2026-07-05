@@ -22,6 +22,43 @@ public static class Constants
         public const string UserMetadata = "usermetadata";
         public const string Totp = "totp";
         public const string Passwordless = "passwordless";
+        public const string EmailVerification = "emailverification";
+        public const string Jwt = "jwt";
+        public const string Multitenancy = "multitenancy";
+    }
+
+    /// <summary>
+    /// Email verification recipe CDI paths.
+    /// </summary>
+    public static class EmailVerificationPaths
+    {
+        public const string RecipeUserEmailVerifyToken = "/recipe/user/email/verify/token";
+        public const string RecipeUserEmailVerify = "/recipe/user/email/verify";
+        public const string RecipeUserEmailVerifyTokenRemove = "/recipe/user/email/verify/token/remove";
+        public const string RecipeUserEmailVerifyRemove = "/recipe/user/email/verify/remove";
+    }
+
+    /// <summary>
+    /// JWT recipe CDI paths.
+    /// </summary>
+    public static class JwtPaths
+    {
+        public const string RecipeJwt = "/recipe/jwt";
+        public const string WellKnownJwks = "/.well-known/jwks.json";
+    }
+
+    /// <summary>
+    /// Multitenancy recipe CDI paths.
+    /// </summary>
+    public static class MultitenancyPaths
+    {
+        public const string RecipeMultitenancyTenant = "/recipe/multitenancy/tenant";
+        public const string RecipeMultitenancyTenantRemove = "/recipe/multitenancy/tenant/remove";
+        public const string RecipeMultitenancyTenantList = "/recipe/multitenancy/tenant/list";
+        public const string RecipeMultitenancyConfigThirdParty = "/recipe/multitenancy/config/thirdparty";
+        public const string RecipeMultitenancyConfigThirdPartyRemove = "/recipe/multitenancy/config/thirdparty/remove";
+        public const string RecipeMultitenancyTenantUser = "/recipe/multitenancy/tenant/user";
+        public const string RecipeMultitenancyTenantUserRemove = "/recipe/multitenancy/tenant/user/remove";
     }
 
     /// <summary>
@@ -90,12 +127,22 @@ public static class Constants
         public const string RecipeUserRoles = "/recipe/user/roles";
         public const string RecipeUserRole = "/recipe/user/role";
         public const string RecipeUserMetadata = "/recipe/user/metadata";
+        public const string RecipeJwtData = "/recipe/jwt/data";
+        public const string RecipeRolePermissions = "/recipe/role/permissions";
     }
 
     /// <summary>
     /// Default tenant id used by SuperTokens.
     /// </summary>
     public const string DefaultTenantId = "public";
+
+    /// <summary>
+    /// Named HttpClient names used by the SDK.
+    /// </summary>
+    public static class HttpClientNames
+    {
+        public const string CoreApiClient = "SuperTokensCoreApiClient";
+    }
 
     /// <summary>
     /// Status values returned by SuperTokens Core.

@@ -4,8 +4,11 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Moq;
 using SuperTokensSDK.Net.AspNetCore;
 using SuperTokensSDK.Net.Configuration;
+using SuperTokensSDK.Net.Core;
+using SuperTokensSDK.Net.Core.Models;
 
 using Xunit;
 
@@ -15,7 +18,7 @@ namespace SuperTokensSDK.Net.Tests;
 
 public class SuperTokensAuthenticationHandlerTests
 {
-    private static TestServer CreateServer()
+    private static TestServer CreateServer(Mock<ICoreApiClient>? coreMock = null)
     {
         return new TestServer(new WebHostBuilder()
             .ConfigureServices(services =>
@@ -25,6 +28,10 @@ public class SuperTokensAuthenticationHandlerTests
                     options.CoreUri = "http://localhost:3567";
                     options.AppName = "Test";
                 });
+                if (coreMock != null)
+                {
+                    services.AddSingleton<ICoreApiClient>(coreMock.Object);
+                }
                 services.AddAuthentication("SuperTokens").AddSuperTokensAuthentication();
             })
             .Configure(app =>
@@ -53,7 +60,15 @@ public class SuperTokensAuthenticationHandlerTests
             ["sessionHandle"] = "sh-auth"
         });
 
-        var server = CreateServer();
+        var coreMock = new Mock<ICoreApiClient>();
+        coreMock.Setup(c => c.VerifySessionAsync(It.Is<VerifySessionRequest>(r => r.AccessToken == jwt), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GetSessionResponse
+            {
+                Status = "OK",
+                Session = new SessionStruct { Handle = "sh-auth", UserId = "u-auth", UserDataInJWT = new() }
+            });
+
+        var server = CreateServer(coreMock);
         var client = server.CreateClient();
         client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", jwt);
 
@@ -76,7 +91,11 @@ public class SuperTokensAuthenticationHandlerTests
     [Fact]
     public async Task HandleAuthenticateAsync_InvalidBearerToken_ReturnsUnauthorized()
     {
-        var server = CreateServer();
+        var coreMock = new Mock<ICoreApiClient>();
+        coreMock.Setup(c => c.VerifySessionAsync(It.IsAny<VerifySessionRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new UnauthorizedException("invalid"));
+
+        var server = CreateServer(coreMock);
         var client = server.CreateClient();
         client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "malformed-token");
 
@@ -93,7 +112,15 @@ public class SuperTokensAuthenticationHandlerTests
             ["sessionHandle"] = "sh-cookie-auth"
         });
 
-        var server = CreateServer();
+        var coreMock = new Mock<ICoreApiClient>();
+        coreMock.Setup(c => c.VerifySessionAsync(It.Is<VerifySessionRequest>(r => r.AccessToken == jwt), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GetSessionResponse
+            {
+                Status = "OK",
+                Session = new SessionStruct { Handle = "sh-cookie-auth", UserId = "u-cookie-auth", UserDataInJWT = new() }
+            });
+
+        var server = CreateServer(coreMock);
         var client = server.CreateClient();
         var request = new HttpRequestMessage(HttpMethod.Get, "/");
         request.Headers.Add("Cookie", $"sAccessToken={jwt}");
@@ -111,7 +138,15 @@ public class SuperTokensAuthenticationHandlerTests
             ["sessionHandle"] = "sh-hub-auth"
         });
 
-        var server = CreateServer();
+        var coreMock = new Mock<ICoreApiClient>();
+        coreMock.Setup(c => c.VerifySessionAsync(It.Is<VerifySessionRequest>(r => r.AccessToken == jwt), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GetSessionResponse
+            {
+                Status = "OK",
+                Session = new SessionStruct { Handle = "sh-hub-auth", UserId = "u-hub-auth", UserDataInJWT = new() }
+            });
+
+        var server = CreateServer(coreMock);
         var client = server.CreateClient();
 
         var response = await client.GetAsync($"/hubs?access_token={jwt}");

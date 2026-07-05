@@ -1,4 +1,5 @@
 using SuperTokensSDK.Net.Core;
+using SuperTokensSDK.Net.Core.Claims;
 using SuperTokensSDK.Net.Core.Models;
 
 namespace SuperTokensSDK.Net.Recipes.Session;
@@ -34,37 +35,22 @@ public class SessionRecipe
 
     public async Task<SessionContainer> VerifySessionAsync(string accessToken, string? antiCsrfToken = null, CancellationToken cancellationToken = default)
     {
-        // CDI 5.0 Core 11.x has a bug in /recipe/session/verify that rejects
-        // doAntiCsrfCheck even when not sent. As a workaround, we decode the
-        // JWT locally (it's a standard RS256 JWT signed by Core).
-        // The access token contains: sub (userId), exp, iat, sessionHandle, etc.
-        var payload = DecodeJwtPayload(accessToken);
+        var response = await _coreApiClient.VerifySessionAsync(new VerifySessionRequest
+        {
+            AccessToken = accessToken,
+            AntiCsrfToken = antiCsrfToken,
+            DoAntiCsrfCheck = !string.IsNullOrEmpty(antiCsrfToken)
+        }, cancellationToken);
 
-        var userId = payload?.GetValueOrDefault("sub")?.ToString() ?? "";
-        var sessionHandle = payload?.GetValueOrDefault("sessionHandle")?.ToString() ?? "";
-
-        if (string.IsNullOrEmpty(userId))
+        if (string.IsNullOrEmpty(response?.Session?.UserId))
         {
             throw new UnauthorizedException("Access token does not contain a valid userId.");
         }
 
-        // Extract userDataInJWT from the payload (custom claims)
-        var userData = new Dictionary<string, object>();
-        if (payload != null)
-        {
-            foreach (var kvp in payload)
-            {
-                if (kvp.Key != "sub" && kvp.Key != "exp" && kvp.Key != "iat" &&
-                    kvp.Key != "sessionHandle" && kvp.Key != "parentRefreshTokenHash1" &&
-                    kvp.Key != "refreshTokenHash1" && kvp.Key != "antiCsrfToken" &&
-                    kvp.Key != "rsub" && kvp.Key != "tId")
-                {
-                    userData[kvp.Key] = kvp.Value;
-                }
-            }
-        }
-
-        return new SessionContainer(sessionHandle, userId, userData)
+        return new SessionContainer(
+            response!.Session.Handle,
+            response.Session.UserId,
+            response.Session.UserDataInJWT)
         {
             AccessToken = accessToken
         };
@@ -106,6 +92,94 @@ public class SessionRecipe
         return revoked.Contains(sessionHandle);
     }
 
+    public async Task<ClaimValidationResult[]> ValidateClaimsAsync(
+        string sessionHandle,
+        List<SessionClaimValidator> validators,
+        CancellationToken cancellationToken = default)
+    {
+        var info = await _coreApiClient.GetSessionInformationAsync(sessionHandle, cancellationToken);
+        if (info == null)
+        {
+            return new[] { new ClaimValidationResult { IsValid = false, Reason = "Session not found" } };
+        }
+
+        var payload = ToNullableDictionary(info.UserDataInJWT);
+        var results = new List<ClaimValidationResult>(validators.Count);
+
+        foreach (var validator in validators)
+        {
+            if (validator.Claim != null)
+            {
+                var shouldRefetch = validator.ShouldRefetch?.Invoke(payload) ?? false;
+                if (shouldRefetch)
+                {
+                    var value = await validator.Claim.FetchValue(info.UserId, info.TenantId, cancellationToken);
+                    if (value != null)
+                    {
+                        await SetClaimValueAsync(sessionHandle, validator.Claim, value, cancellationToken);
+                        payload = validator.Claim.AddToPayload(payload, value);
+                    }
+                }
+            }
+
+            results.Add(validator.Validate(payload));
+        }
+
+        return results.ToArray();
+    }
+
+    public async Task FetchAndSetClaimAsync(string sessionHandle, TypeSessionClaim claim, CancellationToken cancellationToken = default)
+    {
+        var info = await _coreApiClient.GetSessionInformationAsync(sessionHandle, cancellationToken);
+        if (info == null) return;
+
+        var value = await claim.FetchValue(info.UserId, info.TenantId, cancellationToken);
+        if (value != null)
+        {
+            await SetClaimValueAsync(sessionHandle, claim, value, cancellationToken);
+        }
+    }
+
+    public async Task SetClaimValueAsync(
+        string sessionHandle,
+        TypeSessionClaim claim,
+        object? value,
+        CancellationToken cancellationToken = default)
+    {
+        var info = await _coreApiClient.GetSessionInformationAsync(sessionHandle, cancellationToken);
+        if (info == null) return;
+
+        var payload = claim.AddToPayload(ToNullableDictionary(info.UserDataInJWT), value);
+        await _coreApiClient.UpdateJwtDataAsync(new UpdateJwtDataRequest
+        {
+            SessionHandle = sessionHandle,
+            UserDataInJWT = payload
+        }, cancellationToken);
+    }
+
+    public async Task<T?> GetClaimValueAsync<T>(string sessionHandle, TypeSessionClaim claim, CancellationToken cancellationToken = default)
+    {
+        var info = await _coreApiClient.GetSessionInformationAsync(sessionHandle, cancellationToken);
+        if (info == null) return default;
+
+        var payload = ToNullableDictionary(info.UserDataInJWT);
+        var value = claim.GetValueFromPayload(payload, claim.Key);
+        return ClaimPayloadHelper.ConvertValue<T>(value);
+    }
+
+    public async Task RemoveClaimAsync(string sessionHandle, TypeSessionClaim claim, CancellationToken cancellationToken = default)
+    {
+        var info = await _coreApiClient.GetSessionInformationAsync(sessionHandle, cancellationToken);
+        if (info == null) return;
+
+        var payload = claim.RemoveFromPayload(ToNullableDictionary(info.UserDataInJWT));
+        await _coreApiClient.UpdateJwtDataAsync(new UpdateJwtDataRequest
+        {
+            SessionHandle = sessionHandle,
+            UserDataInJWT = payload
+        }, cancellationToken);
+    }
+
     private static SessionContainer CreateContainer(CreateOrRefreshAPIResponse response)
     {
         return new SessionContainer(
@@ -127,63 +201,8 @@ public class SessionRecipe
         return DateTimeOffset.FromUnixTimeMilliseconds(expiryMs.Value).UtcDateTime;
     }
 
-    /// <summary>
-    /// Decodes a JWT payload without signature verification.
-    /// This is safe because the token was issued by SuperTokens Core and
-    /// we trust the Core's signing key. For production, add JWKS verification.
-    /// </summary>
-    private static Dictionary<string, object>? DecodeJwtPayload(string jwt)
+    private static Dictionary<string, object?> ToNullableDictionary(Dictionary<string, object> source)
     {
-        try
-        {
-            var parts = jwt.Split('.');
-            if (parts.Length < 2) return null;
-
-            // JWT payload is base64url encoded (no padding)
-            var payloadBase64 = parts[1];
-            payloadBase64 = payloadBase64.Replace('-', '+').Replace('_', '/');
-            switch (payloadBase64.Length % 4)
-            {
-                case 2: payloadBase64 += "=="; break;
-                case 3: payloadBase64 += "="; break;
-            }
-
-            var jsonBytes = Convert.FromBase64String(payloadBase64);
-            var json = System.Text.Encoding.UTF8.GetString(jsonBytes);
-
-            using var doc = System.Text.Json.JsonDocument.Parse(json);
-            var result = new Dictionary<string, object>();
-            foreach (var prop in doc.RootElement.EnumerateObject())
-            {
-                result[prop.Name] = prop.Value.ValueKind switch
-                {
-                    System.Text.Json.JsonValueKind.String => prop.Value.GetString() ?? "",
-                    System.Text.Json.JsonValueKind.Number => prop.Value.GetRawText(),
-                    System.Text.Json.JsonValueKind.True => true,
-                    System.Text.Json.JsonValueKind.False => false,
-                    System.Text.Json.JsonValueKind.Null => "",
-                    _ => prop.Value.GetRawText()
-                };
-            }
-
-            // Check expiry
-            if (result.TryGetValue("exp", out var expStr) && long.TryParse(expStr.ToString(), out var exp))
-            {
-                if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() > exp)
-                {
-                    throw new UnauthorizedException("Access token has expired.");
-                }
-            }
-
-            return result;
-        }
-        catch (UnauthorizedException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            throw new UnauthorizedException($"Failed to decode access token: {ex.Message}");
-        }
+        return source.ToDictionary(kvp => kvp.Key, kvp => (object?)kvp.Value);
     }
 }

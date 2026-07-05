@@ -5,7 +5,11 @@ using SuperTokensSDK.Net.AspNetCore;
 using SuperTokensSDK.Net.Configuration;
 using SuperTokensSDK.Net.Core;
 using SuperTokensSDK.Net.Recipes.EmailPassword;
+using SuperTokensSDK.Net.Recipes.EmailVerification;
+using SuperTokensSDK.Net.Recipes.Jwt;
+using SuperTokensSDK.Net.Recipes.Multitenancy;
 using SuperTokensSDK.Net.Recipes.Session;
+using SuperTokensSDK.Net.Recipes.UserManagement;
 using SuperTokensSDK.Net.Recipes.UserMetadata;
 using SuperTokensSDK.Net.Recipes.UserRoles;
 
@@ -33,6 +37,10 @@ public class SuperTokensExtensionsTests
         Assert.NotNull(provider.GetService<EmailPasswordRecipe>());
         Assert.NotNull(provider.GetService<UserRolesRecipe>());
         Assert.NotNull(provider.GetService<UserMetadataRecipe>());
+        Assert.NotNull(provider.GetService<UserManagementRecipe>());
+        Assert.NotNull(provider.GetService<EmailVerificationRecipe>());
+        Assert.NotNull(provider.GetService<JwtRecipe>());
+        Assert.NotNull(provider.GetService<MultitenancyRecipe>());
     }
 
     [Fact]
@@ -50,7 +58,11 @@ public class SuperTokensExtensionsTests
             typeof(SessionRecipe),
             typeof(EmailPasswordRecipe),
             typeof(UserRolesRecipe),
-            typeof(UserMetadataRecipe)
+            typeof(UserMetadataRecipe),
+            typeof(UserManagementRecipe),
+            typeof(EmailVerificationRecipe),
+            typeof(JwtRecipe),
+            typeof(MultitenancyRecipe)
         }, type =>
         {
             var descriptor = services.FirstOrDefault(s => s.ServiceType == type);

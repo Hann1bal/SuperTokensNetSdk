@@ -1,11 +1,14 @@
 using System.Net;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
 using SuperTokensSDK.Net.Configuration;
 using SuperTokensSDK.Net.Core.Models;
+using SystemIdentityModelTokensJwt = System.IdentityModel.Tokens.Jwt;
 
 namespace SuperTokensSDK.Net.Core;
 
@@ -20,6 +23,7 @@ public class CoreApiClient : ICoreApiClient
     private readonly SuperTokensOptions _options;
     private readonly ILogger<CoreApiClient> _logger;
     private readonly IReadOnlyList<Uri> _hosts;
+    private readonly JwksClient? _jwksClient;
 
     private readonly SemaphoreSlim _versionSemaphore = new(1, 1);
     private string? _cdiVersion;
@@ -45,6 +49,12 @@ public class CoreApiClient : ICoreApiClient
         }
     }
 
+    public CoreApiClient(HttpClient httpClient, IOptions<SuperTokensOptions> options, ILogger<CoreApiClient> logger, JwksClient jwksClient)
+        : this(httpClient, options, logger)
+    {
+        _jwksClient = jwksClient ?? throw new ArgumentNullException(nameof(jwksClient));
+    }
+
     #region Recipe API methods
 
     public async Task<CreateOrRefreshAPIResponse> CreateSessionAsync(CreateSessionRequest request, CancellationToken cancellationToken = default)
@@ -56,9 +66,16 @@ public class CoreApiClient : ICoreApiClient
     public async Task<GetSessionResponse> VerifySessionAsync(VerifySessionRequest request, CancellationToken cancellationToken = default)
     {
         // Core 11.x has a bug in /recipe/session/verify that rejects doAntiCsrfCheck
-        // even when not sent. As a workaround, we decode the JWT locally.
-        // The access token is a standard RS256 JWT signed by Core.
-        var payload = DecodeJwtPayload(request.AccessToken);
+        // even when not sent. We first try to verify the JWT signature using the JWKS
+        // published by Core, and fall back to a local decode if that fails.
+        Dictionary<string, object>? payload = null;
+
+        if (_jwksClient != null)
+        {
+            payload = await VerifyJwtSignatureAsync(request.AccessToken, cancellationToken);
+        }
+
+        payload ??= DecodeJwtPayload(request.AccessToken);
 
         var userId = payload?.GetValueOrDefault("sub")?.ToString() ?? "";
         var sessionHandle = payload?.GetValueOrDefault("sessionHandle")?.ToString() ?? "";
@@ -77,14 +94,11 @@ public class CoreApiClient : ICoreApiClient
             "antiCsrfToken", "rsub", "tId"
         };
 
-        if (payload != null)
+        foreach (var kvp in payload!)
         {
-            foreach (var kvp in payload)
+            if (!protectedFields.Contains(kvp.Key))
             {
-                if (!protectedFields.Contains(kvp.Key))
-                {
-                    userData[kvp.Key] = kvp.Value;
-                }
+                userData[kvp.Key] = kvp.Value;
             }
         }
 
@@ -96,7 +110,7 @@ public class CoreApiClient : ICoreApiClient
                 Handle = sessionHandle,
                 UserId = userId,
                 UserDataInJWT = userData,
-                TenantId = "public"
+                TenantId = payload.GetValueOrDefault("tId")?.ToString() ?? Constants.DefaultTenantId
             }
         };
     }
@@ -131,6 +145,42 @@ public class CoreApiClient : ICoreApiClient
             HttpMethod.Post, Constants.Paths.RecipeUserPasswordReset, request, Constants.RecipeIds.EmailPassword, cancellationToken);
     }
 
+    public async Task<GetUserResponse> GetUserByIdAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
+        query["userId"] = userId;
+        return await GetJsonAsync<GetUserResponse>(
+            $"/recipe/user?{query}", Constants.RecipeIds.EmailPassword, cancellationToken);
+    }
+
+    public async Task<GetUserResponse> GetUserByEmailAsync(string email, string tenantId = "public", CancellationToken cancellationToken = default)
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
+        query["email"] = email;
+        return await GetJsonAsync<GetUserResponse>(
+            $"{tenantId}/recipe/user?{query}", Constants.RecipeIds.EmailPassword, cancellationToken);
+    }
+
+    public async Task<GeneratePasswordResetTokenResponse> GeneratePasswordResetTokenAsync(GeneratePasswordResetTokenRequest request, CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<GeneratePasswordResetTokenRequest, GeneratePasswordResetTokenResponse>(
+            HttpMethod.Post, "/recipe/user/password/reset/token", request, Constants.RecipeIds.EmailPassword, cancellationToken);
+    }
+
+    public async Task<StatusResponse> UpdateEmailOrPasswordAsync(UpdateEmailOrPasswordRequest request, CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<UpdateEmailOrPasswordRequest, StatusResponse>(
+            HttpMethod.Put, "/recipe/user", request, Constants.RecipeIds.EmailPassword, cancellationToken);
+    }
+
+    public async Task<EmailExistsResponse> EmailExistsAsync(string email, string tenantId = "public", CancellationToken cancellationToken = default)
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
+        query["email"] = email;
+        return await GetJsonAsync<EmailExistsResponse>(
+            $"{tenantId}/recipe/signup/email/exists?{query}", Constants.RecipeIds.EmailPassword, cancellationToken);
+    }
+
     public async Task<StatusResponse> AddUserRolesAsync(UserRolesRequest request, CancellationToken cancellationToken = default)
     {
         return await SendJsonAsync<UserRolesRequest, StatusResponse>(
@@ -160,6 +210,66 @@ public class CoreApiClient : ICoreApiClient
             $"{Constants.Paths.RecipeUserRole}?{query}", Constants.RecipeIds.UserRoles, cancellationToken);
     }
 
+    public async Task<UsersThatHaveRoleResponse> GetUsersThatHaveRoleAsync(string role, string tenantId = "public", int? limit = null, string? timeJoinedOrder = null, string? paginationToken = null, CancellationToken cancellationToken = default)
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
+        query["role"] = role;
+        if (limit.HasValue)
+        {
+            query["limit"] = limit.Value.ToString();
+        }
+        if (!string.IsNullOrEmpty(timeJoinedOrder))
+        {
+            query["timeJoinedOrder"] = timeJoinedOrder;
+        }
+        if (!string.IsNullOrEmpty(paginationToken))
+        {
+            query["paginationToken"] = paginationToken;
+        }
+        return await GetJsonAsync<UsersThatHaveRoleResponse>(
+            $"{tenantId}/recipe/role/users?{query}", Constants.RecipeIds.UserRoles, cancellationToken);
+    }
+
+    public async Task<UserRolesCreateResponse> CreateNewRoleOrAddPermissionsAsync(UserRolesCreateRequest request, CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<UserRolesCreateRequest, UserRolesCreateResponse>(
+            HttpMethod.Put, "/recipe/role", request, Constants.RecipeIds.UserRoles, cancellationToken);
+    }
+
+    public async Task<PermissionsForRoleResponse> GetPermissionsForRoleAsync(string role, CancellationToken cancellationToken = default)
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
+        query["role"] = role;
+        return await GetJsonAsync<PermissionsForRoleResponse>(
+            $"/recipe/role/permissions?{query}", Constants.RecipeIds.UserRoles, cancellationToken);
+    }
+
+    public async Task<StatusResponse> RemovePermissionsFromRoleAsync(RemovePermissionsRequest request, CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<RemovePermissionsRequest, StatusResponse>(
+            HttpMethod.Post, "/recipe/role/permissions/remove", request, Constants.RecipeIds.UserRoles, cancellationToken);
+    }
+
+    public async Task<RolesWithPermissionResponse> GetRolesThatHavePermissionAsync(string permission, CancellationToken cancellationToken = default)
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
+        query["permission"] = permission;
+        return await GetJsonAsync<RolesWithPermissionResponse>(
+            $"/recipe/permission/roles?{query}", Constants.RecipeIds.UserRoles, cancellationToken);
+    }
+
+    public async Task<DeleteRoleResponse> DeleteRoleAsync(DeleteRoleRequest request, CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<DeleteRoleRequest, DeleteRoleResponse>(
+            HttpMethod.Post, "/recipe/role/remove", request, Constants.RecipeIds.UserRoles, cancellationToken);
+    }
+
+    public async Task<AllRolesResponse> GetAllRolesAsync(CancellationToken cancellationToken = default)
+    {
+        return await GetJsonAsync<AllRolesResponse>(
+            "/recipe/roles", Constants.RecipeIds.UserRoles, cancellationToken);
+    }
+
     public async Task<UserMetadataResponse> GetUserMetadataAsync(string userId, CancellationToken cancellationToken = default)
     {
         var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
@@ -172,6 +282,12 @@ public class CoreApiClient : ICoreApiClient
     {
         return await SendJsonAsync<UserMetadataUpdateRequest, StatusResponse>(
             HttpMethod.Put, Constants.Paths.RecipeUserMetadata, request, Constants.RecipeIds.UserMetadata, cancellationToken);
+    }
+
+    public async Task<StatusResponse> UpdateJwtDataAsync(UpdateJwtDataRequest request, CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<UpdateJwtDataRequest, StatusResponse>(
+            HttpMethod.Put, Constants.Paths.RecipeJwtData, request, Constants.RecipeIds.Session, cancellationToken);
     }
 
     public async Task<CreateTotpDeviceResponse> CreateTotpDeviceAsync(CreateTotpDeviceRequest request, CancellationToken cancellationToken = default)
@@ -218,6 +334,103 @@ public class CoreApiClient : ICoreApiClient
             HttpMethod.Post, $"{tenantId}{Constants.PasswordlessPaths.RecipeSigninupCodeConsume}", request, Constants.RecipeIds.Passwordless, cancellationToken);
     }
 
+    public async Task<CreateEmailVerificationTokenResponse> CreateEmailVerificationTokenAsync(string userId, string? email, string tenantId = "public", CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<CreateEmailVerificationTokenRequest, CreateEmailVerificationTokenResponse>(
+            HttpMethod.Post, $"{tenantId}{Constants.EmailVerificationPaths.RecipeUserEmailVerifyToken}", new CreateEmailVerificationTokenRequest { UserId = userId, Email = email }, Constants.RecipeIds.EmailVerification, cancellationToken);
+    }
+
+    public async Task<VerifyEmailResponse> VerifyEmailAsync(string token, string tenantId = "public", CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<VerifyEmailRequest, VerifyEmailResponse>(
+            HttpMethod.Post, $"{tenantId}{Constants.EmailVerificationPaths.RecipeUserEmailVerify}", new VerifyEmailRequest { Token = token }, Constants.RecipeIds.EmailVerification, cancellationToken);
+    }
+
+    public async Task<IsEmailVerifiedResponse> IsEmailVerifiedAsync(string userId, string? email, string tenantId = "public", CancellationToken cancellationToken = default)
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
+        query["userId"] = userId;
+        if (!string.IsNullOrEmpty(email))
+        {
+            query["email"] = email;
+        }
+        return await GetJsonAsync<IsEmailVerifiedResponse>(
+            $"{tenantId}{Constants.EmailVerificationPaths.RecipeUserEmailVerify}?{query}", Constants.RecipeIds.EmailVerification, cancellationToken);
+    }
+
+    public async Task RevokeEmailVerificationTokensAsync(string userId, string? email, string tenantId = "public", CancellationToken cancellationToken = default)
+    {
+        await SendJsonAsync<RevokeEmailVerificationTokensRequest, StatusResponse>(
+            HttpMethod.Post, $"{tenantId}{Constants.EmailVerificationPaths.RecipeUserEmailVerifyTokenRemove}", new RevokeEmailVerificationTokensRequest { UserId = userId, Email = email }, Constants.RecipeIds.EmailVerification, cancellationToken);
+    }
+
+    public async Task UnverifyEmailAsync(string userId, string? email, string tenantId = "public", CancellationToken cancellationToken = default)
+    {
+        await SendJsonAsync<UnverifyEmailRequest, StatusResponse>(
+            HttpMethod.Post, $"{tenantId}{Constants.EmailVerificationPaths.RecipeUserEmailVerifyRemove}", new UnverifyEmailRequest { UserId = userId, Email = email }, Constants.RecipeIds.EmailVerification, cancellationToken);
+    }
+
+    public async Task<CreateJwtResponse> CreateJwtAsync(Dictionary<string, object> payload, int validityInSeconds = 3600, string? useStaticSigningKey = null, string tenantId = "public", CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<CreateJwtRequest, CreateJwtResponse>(
+            HttpMethod.Post, $"{tenantId}{Constants.JwtPaths.RecipeJwt}", new CreateJwtRequest { Payload = payload, Validity = validityInSeconds, UseStaticSigningKey = useStaticSigningKey }, Constants.RecipeIds.Jwt, cancellationToken);
+    }
+
+    public async Task<JwksResponse> GetJwksAsync(CancellationToken cancellationToken = default)
+    {
+        return await GetJsonAsync<JwksResponse>(
+            Constants.JwtPaths.WellKnownJwks, null, cancellationToken);
+    }
+
+    public async Task<CreateOrUpdateTenantResponse> CreateOrUpdateTenantAsync(string tenantId, TenantConfig config, CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<CreateOrUpdateTenantRequest, CreateOrUpdateTenantResponse>(
+            HttpMethod.Put, Constants.MultitenancyPaths.RecipeMultitenancyTenant, new CreateOrUpdateTenantRequest { TenantId = tenantId, Config = config }, Constants.RecipeIds.Multitenancy, cancellationToken);
+    }
+
+    public async Task<DeleteTenantResponse> DeleteTenantAsync(string tenantId, bool? deleteConditional = null, CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<DeleteTenantRequest, DeleteTenantResponse>(
+            HttpMethod.Post, Constants.MultitenancyPaths.RecipeMultitenancyTenantRemove, new DeleteTenantRequest { TenantId = tenantId, DeleteConditional = deleteConditional }, Constants.RecipeIds.Multitenancy, cancellationToken);
+    }
+
+    public async Task<GetTenantResponse> GetTenantAsync(string tenantId, CancellationToken cancellationToken = default)
+    {
+        return await GetJsonAsync<GetTenantResponse>(
+            $"{tenantId}{Constants.MultitenancyPaths.RecipeMultitenancyTenant}", Constants.RecipeIds.Multitenancy, cancellationToken);
+    }
+
+    public async Task<ListTenantsResponse> ListAllTenantsAsync(CancellationToken cancellationToken = default)
+    {
+        return await GetJsonAsync<ListTenantsResponse>(
+            Constants.MultitenancyPaths.RecipeMultitenancyTenantList, Constants.RecipeIds.Multitenancy, cancellationToken);
+    }
+
+    public async Task CreateOrUpdateThirdPartyConfigAsync(string tenantId, Dictionary<string, object> config, CancellationToken cancellationToken = default)
+    {
+        await SendJsonAsync<Dictionary<string, object>, StatusResponse>(
+            HttpMethod.Put, $"{tenantId}{Constants.MultitenancyPaths.RecipeMultitenancyConfigThirdParty}", config, Constants.RecipeIds.Multitenancy, cancellationToken);
+    }
+
+    public async Task DeleteThirdPartyConfigAsync(string tenantId, string thirdPartyId, CancellationToken cancellationToken = default)
+    {
+        await SendJsonAsync<Dictionary<string, object>, StatusResponse>(
+            HttpMethod.Post, $"{tenantId}{Constants.MultitenancyPaths.RecipeMultitenancyConfigThirdPartyRemove}", new Dictionary<string, object> { ["thirdPartyId"] = thirdPartyId }, Constants.RecipeIds.Multitenancy, cancellationToken);
+    }
+
+    public async Task<AssociateUserResponse> AssociateUserToTenantAsync(string tenantId, string userId, CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<AssociateUserRequest, AssociateUserResponse>(
+            HttpMethod.Post, $"{tenantId}{Constants.MultitenancyPaths.RecipeMultitenancyTenantUser}", new AssociateUserRequest { UserId = userId }, Constants.RecipeIds.Multitenancy, cancellationToken);
+    }
+
+    public async Task<bool> DisassociateUserFromTenantAsync(string tenantId, string userId, CancellationToken cancellationToken = default)
+    {
+        var response = await SendJsonAsync<DisassociateUserFromTenantRequest, StatusResponse>(
+            HttpMethod.Post, $"{tenantId}{Constants.MultitenancyPaths.RecipeMultitenancyTenantUserRemove}", new DisassociateUserFromTenantRequest { UserId = userId }, Constants.RecipeIds.Multitenancy, cancellationToken);
+        return response.Status == Constants.Status.Ok;
+    }
+
     public async Task<List<string>> GetAllSessionHandlesForUserAsync(string userId, string tenantId = "public", bool fetchAcrossAllTenants = false, CancellationToken cancellationToken = default)
     {
         var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
@@ -258,6 +471,31 @@ public class CoreApiClient : ICoreApiClient
         var response = await SendJsonAsync<RevokeAllSessionsRequest, RevokeAllSessionsResponse>(
             HttpMethod.Post, $"{tenantId}/recipe/session/remove", new RevokeAllSessionsRequest { UserId = userId, RevokeAcrossAllTenants = revokeAcrossAllTenants }, Constants.RecipeIds.Session, cancellationToken);
         return response.SessionHandlesRevoked;
+    }
+
+    public async Task<UserListResponse> GetUsersAsync(int limit = 100, string? paginationToken = null, string timeJoinedOrder = "DESC", CancellationToken cancellationToken = default)
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
+        query["limit"] = limit.ToString();
+        query["timeJoinedOrder"] = timeJoinedOrder;
+        if (!string.IsNullOrEmpty(paginationToken))
+        {
+            query["paginationToken"] = paginationToken;
+        }
+        return await GetJsonAsync<UserListResponse>(
+            $"/users?{query}", null, cancellationToken);
+    }
+
+    public async Task<UserCountResponse> GetUserCountAsync(CancellationToken cancellationToken = default)
+    {
+        return await GetJsonAsync<UserCountResponse>(
+            "/users/count", null, cancellationToken);
+    }
+
+    public async Task<StatusResponse> DeleteUserAsync(DeleteUserRequest request, CancellationToken cancellationToken = default)
+    {
+        return await SendJsonAsync<DeleteUserRequest, StatusResponse>(
+            HttpMethod.Post, "/user/remove", request, null, cancellationToken);
     }
 
     #endregion
@@ -613,6 +851,59 @@ public class CoreApiClient : ICoreApiClient
     {
         [JsonPropertyName("versions")]
         public List<string> Versions { get; set; } = [];
+    }
+
+    private async Task<Dictionary<string, object>?> VerifyJwtSignatureAsync(string accessToken, CancellationToken cancellationToken)
+    {
+        if (_hosts.Count == 0)
+        {
+            return null;
+        }
+
+        var coreUri = _hosts[0].ToString().TrimEnd('/');
+        JsonWebKeySet? jwks;
+        try
+        {
+            jwks = await _jwksClient!.GetKeysAsync(coreUri, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch JWKS from Core.");
+            return null;
+        }
+
+        if (jwks == null)
+        {
+            return null;
+        }
+
+        var handler = new SystemIdentityModelTokensJwt.JwtSecurityTokenHandler();
+        var parameters = new TokenValidationParameters
+        {
+            IssuerSigningKeys = jwks.GetSigningKeys(),
+            ValidateIssuer = false,
+            ValidateAudience = false,
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.Zero
+        };
+
+        try
+        {
+            handler.ValidateToken(accessToken, parameters, out var securityToken);
+            if (securityToken is not SystemIdentityModelTokensJwt.JwtSecurityToken jwtToken)
+            {
+                throw new UnauthorizedException("Access token signature could not be verified.");
+            }
+
+            return jwtToken.Payload
+                .ToDictionary(
+                    kvp => kvp.Key,
+                    kvp => kvp.Value ?? (object)string.Empty);
+        }
+        catch (SecurityTokenException ex)
+        {
+            throw new UnauthorizedException($"Access token verification failed: {ex.Message}");
+        }
     }
 
     /// <summary>

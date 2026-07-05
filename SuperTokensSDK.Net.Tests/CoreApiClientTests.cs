@@ -31,10 +31,12 @@ public class CoreApiClientTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private CoreApiClient CreateClient(SuperTokensOptions? options = null)
+    private CoreApiClient CreateClient(SuperTokensOptions? options = null, JwksClient? jwksClient = null)
     {
         var opts = options ?? new SuperTokensOptions { CoreUri = _server.Url };
-        return new CoreApiClient(_httpClient, Options.Create(opts), NullLogger<CoreApiClient>.Instance);
+        return jwksClient != null
+            ? new CoreApiClient(_httpClient, Options.Create(opts), NullLogger<CoreApiClient>.Instance, jwksClient)
+            : new CoreApiClient(_httpClient, Options.Create(opts), NullLogger<CoreApiClient>.Instance);
     }
 
     private void StubApiVersion()
@@ -298,6 +300,53 @@ public class CoreApiClientTests : IDisposable
         Assert.False(result.Session.UserDataInJWT.ContainsKey("exp"));
         Assert.False(result.Session.UserDataInJWT.ContainsKey("sessionHandle"));
         Assert.Equal("keep", result.Session.UserDataInJWT["custom"]);
+    }
+
+    [Fact]
+    public async Task VerifySessionAsync_VerifiesJwtSignatureWithJwks()
+    {
+        var (jwt, jwksJson) = TestJwtHelper.CreateSignedJwt(new Dictionary<string, object>
+        {
+            ["sub"] = "jwks-user",
+            ["sessionHandle"] = "jwks-sh",
+            ["roles"] = "admin"
+        });
+
+        _server.Given(Request.Create().WithPath("/.well-known/jwks.json").UsingGet())
+            .RespondWith(Response.Create()
+                .WithStatusCode(200)
+                .WithHeader("Content-Type", "application/json")
+                .WithBody(jwksJson));
+
+        var jwksClient = new JwksClient(_httpClient);
+        var client = CreateClient(jwksClient: jwksClient);
+
+        var result = await client.VerifySessionAsync(new VerifySessionRequest { AccessToken = jwt });
+
+        Assert.Equal("jwks-user", result.Session!.UserId);
+        Assert.Equal("admin", result.Session.UserDataInJWT["roles"]);
+    }
+
+    [Fact]
+    public async Task VerifySessionAsync_InvalidSignatureWithJwks_FallsBackToLocalDecode()
+    {
+        var jwt = TestJwtHelper.CreateJwt(new Dictionary<string, object>
+        {
+            ["sub"] = "fallback-user",
+            ["sessionHandle"] = "fallback-sh",
+            ["roles"] = "admin"
+        });
+
+        _server.Given(Request.Create().WithPath("/.well-known/jwks.json").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(500));
+
+        var jwksClient = new JwksClient(_httpClient);
+        var client = CreateClient(jwksClient: jwksClient);
+
+        var result = await client.VerifySessionAsync(new VerifySessionRequest { AccessToken = jwt });
+
+        Assert.Equal("fallback-user", result.Session!.UserId);
+        Assert.Equal("admin", result.Session.UserDataInJWT["roles"]);
     }
 
     [Fact]

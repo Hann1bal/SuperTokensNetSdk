@@ -9,9 +9,13 @@ using SuperTokensSDK.Net.Configuration;
 using SuperTokensSDK.Net.Core;
 using SuperTokensSDK.Net.Core.Models;
 using SuperTokensSDK.Net.Recipes.EmailPassword;
+using SuperTokensSDK.Net.Recipes.EmailVerification;
+using SuperTokensSDK.Net.Recipes.Jwt;
+using SuperTokensSDK.Net.Recipes.Multitenancy;
 using SuperTokensSDK.Net.Recipes.Passwordless;
 using SuperTokensSDK.Net.Recipes.Session;
 using SuperTokensSDK.Net.Recipes.Totp;
+using SuperTokensSDK.Net.Recipes.UserManagement;
 using SuperTokensSDK.Net.Recipes.UserMetadata;
 using SuperTokensSDK.Net.Recipes.UserRoles;
 
@@ -145,16 +149,32 @@ public static class SuperTokensExtensions
     public static IServiceCollection AddSuperTokens(this IServiceCollection services, Action<SuperTokensOptions> configure)
     {
         services.Configure(configure);
-        services.AddHttpClient<ICoreApiClient, CoreApiClient>((provider, client) =>
+        services.AddSingleton<JwksClient>();
+        services.AddHttpClient(Constants.HttpClientNames.CoreApiClient, (provider, client) =>
         {
             client.Timeout = TimeSpan.FromSeconds(30);
+        });
+
+        services.AddScoped<ICoreApiClient>(provider =>
+        {
+            var factory = provider.GetRequiredService<IHttpClientFactory>();
+            var client = factory.CreateClient(Constants.HttpClientNames.CoreApiClient);
+            return new CoreApiClient(
+                client,
+                provider.GetRequiredService<IOptions<SuperTokensOptions>>(),
+                provider.GetRequiredService<ILogger<CoreApiClient>>(),
+                provider.GetRequiredService<JwksClient>());
         });
         services.AddScoped<SessionRecipe>();
         services.AddScoped<EmailPasswordRecipe>();
         services.AddScoped<UserRolesRecipe>();
         services.AddScoped<UserMetadataRecipe>();
+        services.AddScoped<UserManagementRecipe>();
         services.AddScoped<TotpRecipe>();
         services.AddScoped<PasswordlessRecipe>();
+        services.AddScoped<EmailVerificationRecipe>();
+        services.AddScoped<JwtRecipe>();
+        services.AddScoped<MultitenancyRecipe>();
         return services;
     }
 

@@ -62,7 +62,7 @@ public class SessionRecipeTests
     }
 
     [Fact]
-    public async Task VerifySessionAsync_ValidJwt_ReturnsContainer()
+    public async Task VerifySessionAsync_DelegatesToCore_AndReturnsContainer()
     {
         var jwt = TestJwtHelper.CreateJwt(new Dictionary<string, object>
         {
@@ -71,6 +71,22 @@ public class SessionRecipeTests
             ["roles"] = "admin",
             ["custom"] = "v"
         });
+
+        _coreMock.Setup(c => c.VerifySessionAsync(It.Is<VerifySessionRequest>(r => r.AccessToken == jwt), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GetSessionResponse
+            {
+                Status = "OK",
+                Session = new SessionStruct
+                {
+                    Handle = "sh-valid",
+                    UserId = "user-valid",
+                    UserDataInJWT = new Dictionary<string, object>
+                    {
+                        ["roles"] = "admin",
+                        ["custom"] = "v"
+                    }
+                }
+            });
 
         var recipe = new SessionRecipe(_coreMock.Object);
         var container = await recipe.VerifySessionAsync(jwt);
@@ -83,67 +99,34 @@ public class SessionRecipeTests
     }
 
     [Fact]
-    public async Task VerifySessionAsync_ExpiredJwt_ThrowsUnauthorizedException()
+    public async Task VerifySessionAsync_CoreThrowsUnauthorizedException_Propagates()
     {
-        var jwt = TestJwtHelper.CreateJwt(new Dictionary<string, object>
-        {
-            ["sub"] = "user-expired",
-            ["sessionHandle"] = "sh-expired"
-        }, expired: true);
+        _coreMock.Setup(c => c.VerifySessionAsync(It.IsAny<VerifySessionRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new UnauthorizedException("invalid token"));
 
         var recipe = new SessionRecipe(_coreMock.Object);
-        var ex = await Assert.ThrowsAsync<UnauthorizedException>(() => recipe.VerifySessionAsync(jwt));
-        Assert.Contains("expired", ex.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task VerifySessionAsync_MalformedJwt_ThrowsUnauthorizedException()
-    {
-        var recipe = new SessionRecipe(_coreMock.Object);
-        var ex = await Assert.ThrowsAsync<UnauthorizedException>(() => recipe.VerifySessionAsync("not-a-jwt"));
-        Assert.IsAssignableFrom<SuperTokensException>(ex);
+        var ex = await Assert.ThrowsAsync<UnauthorizedException>(() => recipe.VerifySessionAsync("any-token"));
+        Assert.Contains("invalid token", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
     public async Task VerifySessionAsync_MissingSub_ThrowsUnauthorizedException()
     {
-        var jwt = TestJwtHelper.CreateJwt(new Dictionary<string, object>
-        {
-            ["sessionHandle"] = "sh-no-sub"
-        });
+        _coreMock.Setup(c => c.VerifySessionAsync(It.IsAny<VerifySessionRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GetSessionResponse
+            {
+                Status = "OK",
+                Session = new SessionStruct
+                {
+                    Handle = "sh-no-sub",
+                    UserId = "",
+                    UserDataInJWT = new Dictionary<string, object>()
+                }
+            });
 
         var recipe = new SessionRecipe(_coreMock.Object);
-        var ex = await Assert.ThrowsAsync<UnauthorizedException>(() => recipe.VerifySessionAsync(jwt));
+        var ex = await Assert.ThrowsAsync<UnauthorizedException>(() => recipe.VerifySessionAsync("token"));
         Assert.Contains("userId", ex.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task VerifySessionAsync_StripsProtectedFields()
-    {
-        var jwt = TestJwtHelper.CreateJwt(new Dictionary<string, object>
-        {
-            ["sub"] = "user-protected",
-            ["iat"] = 1234567890,
-            ["exp"] = TestJwtHelper.FutureEpoch(),
-            ["sessionHandle"] = "sh-protected",
-            ["parentRefreshTokenHash1"] = "h1",
-            ["refreshTokenHash1"] = "h2",
-            ["antiCsrfToken"] = "csrf",
-            ["rsub"] = "r",
-            ["tId"] = "public",
-            ["custom"] = "keep"
-        });
-
-        var recipe = new SessionRecipe(_coreMock.Object);
-        var container = await recipe.VerifySessionAsync(jwt);
-
-        var protectedFields = new[] { "sub", "iat", "exp", "sessionHandle", "parentRefreshTokenHash1", "refreshTokenHash1", "antiCsrfToken", "rsub", "tId" };
-        foreach (var field in protectedFields)
-        {
-            Assert.False(container.UserDataInJwt.ContainsKey(field), $"Protected field '{field}' should be stripped.");
-        }
-
-        Assert.Equal("keep", container.UserDataInJwt["custom"]);
     }
 
     [Fact]
