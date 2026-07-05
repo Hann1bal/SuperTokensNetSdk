@@ -20,6 +20,19 @@ public static class Constants
         public const string EmailPassword = "emailpassword";
         public const string UserRoles = "userroles";
         public const string UserMetadata = "usermetadata";
+        public const string Totp = "totp";
+    }
+
+    /// <summary>
+    /// TOTP recipe CDI paths.
+    /// </summary>
+    public static class TotpPaths
+    {
+        public const string RecipeTotpDevice = "/recipe/totp/device";
+        public const string RecipeTotpDeviceList = "/recipe/totp/device/list";
+        public const string RecipeTotpDeviceRemove = "/recipe/totp/device/remove";
+        public const string RecipeTotpDeviceVerify = "/recipe/totp/device/verify";
+        public const string RecipeTotpVerify = "/recipe/totp/verify";
     }
 
     /// <summary>
@@ -81,6 +94,11 @@ public static class Constants
         public const string TryRefreshToken = "TRY_REFRESH_TOKEN";
         public const string TokenTheftDetected = "TOKEN_THEFT_DETECTED";
         public const string InvalidClaims = "INVALID_CLAIMS";
+        public const string DeviceAlreadyExistsError = "DEVICE_ALREADY_EXISTS_ERROR";
+        public const string UnknownDeviceError = "UNKNOWN_DEVICE_ERROR";
+        public const string UnknownUserIdError = "UNKNOWN_USER_ID_ERROR";
+        public const string InvalidTotpError = "INVALID_TOTP_ERROR";
+        public const string LimitReachedError = "LIMIT_REACHED_ERROR";
     }
 
     /// <summary>

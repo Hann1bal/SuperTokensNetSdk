@@ -3,10 +3,10 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <PackageId>SuperTokensSDK.Net</PackageId>
-    <Version>2.2.0</Version>
+    <Version>2.3.0</Version>
     <Authors>HistoneDB Team</Authors>
     <Company>None</Company>
-    <Description>SuperTokens integration for ASP.NET Core — CDI client, auth handler, recipes, MCP gateway</Description>
+    <Description>SuperTokens integration for ASP.NET Core: CDI client, auth handler, recipes, MCP gateway</Description>
     <PackageTags>supertokens auth authentication aspnetcore</PackageTags>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -31,7 +31,6 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <None Include="..\readme.md" Pack="true" PackagePath="README.md" />
-    <None Include="..\LICENSE" Pack="true" PackagePath="LICENSE" />
   </ItemGroup>
 
 </Project>

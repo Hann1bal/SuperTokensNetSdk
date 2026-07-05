@@ -43,20 +43,26 @@ jobs:
             echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           fi
 
-      - name: Add GitHub Packages source
-        run: dotnet nuget add source --username ${{ github.repository_owner }} --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name github "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
-
       - name: Restore dependencies
         run: dotnet restore
 
       - name: Build
         run: dotnet build --no-restore --configuration Release
 
+      - name: Run tests
+        run: dotnet test --no-build --configuration Release --logger "console;verbosity=normal"
+
       - name: Pack
         run: dotnet pack --no-build --configuration Release -p:PackageVersion=${{ steps.version.outputs.VERSION }} -p:Version=${{ steps.version.outputs.VERSION }} -p:IncludeSymbols=true -p:SymbolPackageFormat=snupkg -o artifacts
 
+      - name: Publish to NuGet.org
+        run: dotnet nuget push "artifacts/*.nupkg" --source https://api.nuget.org/v3/index.json --api-key ${{ secrets.NUGET_API_KEY }} --skip-duplicate
+
+      - name: Publish symbol packages to NuGet.org
+        run: dotnet nuget push "artifacts/*.snupkg" --source https://api.nuget.org/v3/index.json --api-key ${{ secrets.NUGET_API_KEY }} --skip-duplicate
+
+      - name: Add GitHub Packages source
+        run: dotnet nuget add source --username ${{ github.repository_owner }} --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name github "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
+
       - name: Publish to GitHub Packages
         run: dotnet nuget push "artifacts/*.nupkg" --source github --api-key ${{ secrets.GITHUB_TOKEN }} --skip-duplicate
-
-      - name: Publish symbol packages
-        run: dotnet nuget push "artifacts/*.snupkg" --source github --api-key ${{ secrets.GITHUB_TOKEN }} --skip-duplicate

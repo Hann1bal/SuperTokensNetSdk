@@ -9,17 +9,7 @@ SuperTokens integration for ASP.NET Core. CDI 5.0 client, authentication handler
 
 ## Installation
 
-The package is published to a local NuGet feed. Copy the `.nupkg` into your feed directory and add the feed to your `nuget.config`:
-
-```xml
-<configuration>
-  <packageSources>
-    <add key="LocalPackages" value="./local-packages" />
-  </packageSources>
-</configuration>
-```
-
-Then install:
+The package is available on NuGet.org:
 
 ```bash
 dotnet add package SuperTokensSDK.Net --version 2.2.0
@@ -29,6 +19,12 @@ Or via the Package Manager Console:
 
 ```powershell
 Install-Package SuperTokensSDK.Net -Version 2.2.0
+```
+
+Or in the .csproj:
+
+```xml
+<PackageReference Include="SuperTokensSDK.Net" Version="2.2.0" />
 ```
 
 ## Quick start
