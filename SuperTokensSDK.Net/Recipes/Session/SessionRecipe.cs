@@ -75,11 +75,17 @@ public class SessionRecipe : IOverridableRecipe
         if (Overrides?.RefreshSession != null)
             return await Overrides.RefreshSession(refreshToken, antiCsrfToken, cancellationToken);
 
+        // Cookies set by ASP.NET Core may be URL-encoded (e.g. %2F, %2B, %3D). The Core expects
+        // the raw Base64 refresh token, so decode it before sending. Use Uri.UnescapeDataString
+        // (not WebUtility.UrlDecode) so that literal '+' characters are not converted to spaces.
+        var decodedRefreshToken = Uri.UnescapeDataString(refreshToken);
+
         var response = await _coreApiClient.RefreshSessionAsync(new RefreshSessionRequest
         {
-            RefreshToken = refreshToken,
+            RefreshToken = decodedRefreshToken,
             AntiCsrfToken = antiCsrfToken,
-            EnableAntiCsrf = !string.IsNullOrEmpty(antiCsrfToken)
+            EnableAntiCsrf = !string.IsNullOrEmpty(antiCsrfToken),
+            UseDynamicSigningKey = true
         }, cancellationToken);
 
         return CreateContainer(response);

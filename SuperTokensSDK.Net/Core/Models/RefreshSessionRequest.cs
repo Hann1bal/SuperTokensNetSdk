@@ -15,4 +15,10 @@ public class RefreshSessionRequest
 
     [JsonPropertyName("enableAntiCsrf")]
     public bool EnableAntiCsrf { get; set; } = true;
+
+    /// <summary>
+    /// Required by SuperTokens Core ≥ 11.4 / CDI 5.0 for the /recipe/session/refresh endpoint.
+    /// </summary>
+    [JsonPropertyName("useDynamicSigningKey")]
+    public bool UseDynamicSigningKey { get; set; } = true;
 }
