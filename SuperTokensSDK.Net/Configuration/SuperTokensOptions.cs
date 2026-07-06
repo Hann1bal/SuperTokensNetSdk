@@ -54,6 +54,14 @@ public class SuperTokensOptions
     public bool EnableAntiCsrf { get; set; } = true;
 
     /// <summary>
+    /// Controls whether session cookies are marked as <c>Secure</c>.
+    /// Defaults to <c>true</c> for production safety. Set to <c>false</c>
+    /// only for local HTTP development (e.g. Docker on <c>http://localhost:8080</c>)
+    /// so browsers will send the cookies over plain HTTP.
+    /// </summary>
+    public bool UseSecureCookies { get; set; } = true;
+
+    /// <summary>
     /// Allowlist of origins permitted for cross-origin requests with credentials.
     /// When non-empty, the SuperTokens API middleware only reflects an Origin
     /// header back with <c>Access-Control-Allow-Credentials: true</c> if the
