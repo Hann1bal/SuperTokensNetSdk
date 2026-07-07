@@ -70,7 +70,6 @@ public class SuperTokensOptions
     /// serving authenticated browser traffic. Configure this list explicitly in
     /// production deployments.
     /// </summary>
-    public List<string> AllowedOrigins { get; set; } = new();
 
     /// <summary>
     /// Validates required configuration fields and throws <see cref="InvalidOperationException"/>
