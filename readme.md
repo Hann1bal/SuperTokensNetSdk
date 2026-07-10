@@ -14,7 +14,7 @@
 SuperTokens integration for ASP.NET Core. CDI 5.0 client, authentication handler, session middleware, twelve recipe wrappers (EmailPassword, Session, UserRoles, UserMetadata, TOTP, Passwordless, EmailVerification, Jwt, Multitenancy, ThirdParty, Dashboard), EmailDelivery and SmsDelivery ingredients, an API dispatching middleware, and an MCP gateway.
 
 - **Package**: `SuperTokensSDK.Net`
-- **Version**: 2.7.2
+- **Version**: 2.7.5
 - **Target framework**: net10.0
 - **Dependencies**: MailKit, libphonenumber-csharp, Microsoft.IdentityModel.Tokens, System.IdentityModel.Tokens.Jwt. All are widely-used, well-maintained packages.
 
@@ -23,19 +23,19 @@ SuperTokens integration for ASP.NET Core. CDI 5.0 client, authentication handler
 The package is available on NuGet.org:
 
 ```bash
-dotnet add package SuperTokensSDK.Net --version 2.7.2
+dotnet add package SuperTokensSDK.Net --version 2.7.5
 ```
 
 Or via the Package Manager Console:
 
 ```powershell
-Install-Package SuperTokensSDK.Net -Version 2.7.2
+Install-Package SuperTokensSDK.Net -Version 2.7.5
 ```
 
 Or in the .csproj:
 
 ```xml
-<PackageReference Include="SuperTokensSDK.Net" Version="2.7.2" />
+<PackageReference Include="SuperTokensSDK.Net" Version="2.7.5" />
 ```
 
 ## Quick start
@@ -299,13 +299,23 @@ catch (SuperTokensException ex)
 
 ## API dispatching middleware
 
-`SuperTokensApiMiddleware` proxies `/auth/*` frontend API calls to the SuperTokens Core CDI endpoints. Call `app.UseSuperTokensApi()` after `app.UseSuperTokensMiddleware()` to expose the frontend API on your domain.
+`SuperTokensApiMiddleware` exposes the SuperTokens Frontend Driver Interface (FDI) on your API domain so `supertokens-web-js` can talk to your backend instead of directly to Core. Call `app.UseSuperTokensApi()` after `app.UseSuperTokensMiddleware()`.
 
 The middleware handles:
 
-- Route mapping for EmailPassword, Session, Passwordless, ThirdParty, EmailVerification, and TOTP recipes
-- CORS preflight (OPTIONS) with `Access-Control-Allow-*` headers
-- Raw request forwarding through `ICoreApiClient.ProxyToCoreAsync`
+- **EmailPassword** — `POST /auth/signup` and `POST /auth/signin` are implemented end-to-end:
+  - Parses the FDI `formFields` body.
+  - Calls `EmailPasswordRecipe.SignUpAsync` / `SignInAsync`.
+  - Creates a session via `SessionRecipe.CreateSessionAsync`.
+  - Sets `sAccessToken`, `sRefreshToken`, `sAntiCsrf` cookies and the `front-token` header.
+- **Session refresh** — `POST /auth/session/refresh` is implemented end-to-end:
+  - Reads `sRefreshToken` from the request cookie.
+  - Reads `sAntiCsrf` from the cookie or `anti-csrf` header.
+  - Calls `SessionRecipe.RefreshSessionAsync`, building the CDI body exactly like the official SuperTokens backend SDKs.
+  - Returns `401 { "status": "UNAUTHORISED" }` when the refresh token is missing, which stops pre-login infinite refresh loops in the browser SDK.
+  - Attaches refreshed cookies and the `front-token` header.
+- **Other recipes** — Passwordless, ThirdParty, EmailVerification, TOTP, and session sign-out/sign-out are proxied to Core CDI.
+- **CORS** — Preflight responses include `Access-Control-Allow-Origin`, credentials, and exposed headers (`rid`, `fdi-version`, `anti-csrf`, `front-token`).
 
 ```csharp
 var app = builder.Build();
