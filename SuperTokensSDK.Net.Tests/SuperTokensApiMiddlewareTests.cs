@@ -1,13 +1,19 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Moq;
 using SuperTokensSDK.Net.AspNetCore;
+using SuperTokensSDK.Net.Configuration;
 using SuperTokensSDK.Net.Core;
+using SuperTokensSDK.Net.Core.Models;
+using SuperTokensSDK.Net.Recipes.EmailPassword;
+using SuperTokensSDK.Net.Recipes.Session;
 
 using Xunit;
 
@@ -17,12 +23,18 @@ namespace SuperTokensSDK.Net.Tests;
 
 public class SuperTokensApiMiddlewareTests
 {
-    private static TestServer CreateServer(Mock<ICoreApiClient> coreMock)
+    private static TestServer CreateServer(
+        Mock<ICoreApiClient> coreMock,
+        Action<IServiceCollection>? configureServices = null)
     {
         return new TestServer(new WebHostBuilder()
             .ConfigureServices(services =>
             {
+                services.Configure<SuperTokensOptions>(_ => { });
                 services.AddScoped(_ => coreMock.Object);
+                services.AddScoped<EmailPasswordRecipe>();
+                services.AddScoped<SessionRecipe>();
+                configureServices?.Invoke(services);
             })
             .Configure(app =>
             {
@@ -73,32 +85,161 @@ public class SuperTokensApiMiddlewareTests
     }
 
     [Fact]
-    public async Task SignUpRoute_ProxiesToRecipeSignup()
+    public async Task SignUpRoute_WithFormFields_CreatesUserAndSessionAndSetsCookies()
     {
         var coreMock = new Mock<ICoreApiClient>();
-        coreMock.Setup(c => c.ProxyToCoreAsync(
-                "POST",
-                "/recipe/signup",
-                It.IsAny<string>(),
-                "emailpassword",
+        coreMock.Setup(c => c.SignUpAsync(
+                It.Is<SignUpRequest>(r => r.Email == "a@b.com" && r.Password == "secret"),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(CreateProxyResponse(HttpStatusCode.OK, "{\"status\":\"OK\"}"));
+            .ReturnsAsync(new SignUpResponse
+            {
+                Status = "OK",
+                User = new UserResponse { Id = "user-id", Email = "a@b.com", TimeJoined = 1234567890 }
+            });
+
+        coreMock.Setup(c => c.CreateSessionAsync(
+                It.Is<CreateSessionRequest>(r => r.UserId == "user-id"),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CreateOrRefreshAPIResponse
+            {
+                Status = "OK",
+                Session = new SessionStruct { Handle = "handle", UserId = "user-id", UserDataInJWT = new() },
+                AccessToken = new TokenInfo { Token = "access-token", Expiry = DateTimeOffset.UtcNow.AddMinutes(15).ToUnixTimeMilliseconds() },
+                RefreshToken = new TokenInfo { Token = "refresh-token", Expiry = DateTimeOffset.UtcNow.AddDays(30).ToUnixTimeMilliseconds() },
+                AntiCsrfToken = "anti-csrf-token"
+            });
 
         var server = CreateServer(coreMock);
         var client = server.CreateClient();
 
-        var response = await client.PostAsJsonAsync("/auth/signup", new { email = "a@b.com", password = "secret" });
+        var response = await client.PostAsJsonAsync("/auth/signup", new
+        {
+            formFields = new[]
+            {
+                new { id = "email", value = "a@b.com" },
+                new { id = "password", value = "secret" }
+            }
+        });
+        var body = await response.Content.ReadAsStringAsync();
+        var cookies = response.Headers.GetValues("Set-Cookie").ToList();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("\"status\":\"OK\"", body);
+        Assert.Contains("\"email\":\"a@b.com\"", body);
+        Assert.Contains(cookies, c => c.StartsWith("sAccessToken=access-token"));
+        Assert.Contains(cookies, c => c.StartsWith("sRefreshToken=refresh-token"));
+        Assert.Contains(cookies, c => c.StartsWith("sAntiCsrf=anti-csrf-token"));
+    }
+
+    [Fact]
+    public async Task SignInRoute_WithFormFields_CreatesSessionAndSetsCookies()
+    {
+        var coreMock = new Mock<ICoreApiClient>();
+        coreMock.Setup(c => c.SignInAsync(
+                It.Is<SignUpRequest>(r => r.Email == "a@b.com" && r.Password == "secret"),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SignUpResponse
+            {
+                Status = "OK",
+                User = new UserResponse { Id = "user-id", Email = "a@b.com", TimeJoined = 1234567890 }
+            });
+
+        coreMock.Setup(c => c.CreateSessionAsync(
+                It.Is<CreateSessionRequest>(r => r.UserId == "user-id"),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CreateOrRefreshAPIResponse
+            {
+                Status = "OK",
+                Session = new SessionStruct { Handle = "handle", UserId = "user-id", UserDataInJWT = new() },
+                AccessToken = new TokenInfo { Token = "access-token", Expiry = DateTimeOffset.UtcNow.AddMinutes(15).ToUnixTimeMilliseconds() },
+                RefreshToken = new TokenInfo { Token = "refresh-token", Expiry = DateTimeOffset.UtcNow.AddDays(30).ToUnixTimeMilliseconds() },
+                AntiCsrfToken = "anti-csrf-token"
+            });
+
+        var server = CreateServer(coreMock);
+        var client = server.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/auth/signin", new
+        {
+            formFields = new[]
+            {
+                new { id = "email", value = "a@b.com" },
+                new { id = "password", value = "secret" }
+            }
+        });
         var body = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("OK", body);
-        Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
-        coreMock.Verify(c => c.ProxyToCoreAsync(
-            "POST",
-            "/recipe/signup",
-            It.Is<string?>(b => b != null && b.Contains("a@b.com") && b.Contains("secret")),
-            "emailpassword",
-            It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Contains("\"status\":\"OK\"", body);
+        Assert.Contains("\"email\":\"a@b.com\"", body);
+    }
+
+    [Fact]
+    public async Task SignUpRoute_MissingFields_ReturnsFieldError()
+    {
+        var coreMock = new Mock<ICoreApiClient>();
+        var server = CreateServer(coreMock);
+        var client = server.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/auth/signup", new { formFields = new[] { new { id = "email", value = "a@b.com" } } });
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("\"status\":\"FIELD_ERROR\"", body);
+        Assert.Contains("\"id\":\"password\"", body);
+    }
+
+    [Fact]
+    public async Task SignInRoute_WrongCredentials_ReturnsWrongCredentialsError()
+    {
+        var coreMock = new Mock<ICoreApiClient>();
+        coreMock.Setup(c => c.SignInAsync(
+                It.IsAny<SignUpRequest>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new SuperTokensException("SuperTokens Core returned status WRONG_CREDENTIALS_ERROR: "));
+
+        var server = CreateServer(coreMock);
+        var client = server.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/auth/signin", new
+        {
+            formFields = new[]
+            {
+                new { id = "email", value = "a@b.com" },
+                new { id = "password", value = "wrong" }
+            }
+        });
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Contains("\"status\":\"WRONG_CREDENTIALS_ERROR\"", body);
+    }
+
+    [Fact]
+    public async Task SignUpRoute_EmailAlreadyExists_ReturnsFieldError()
+    {
+        var coreMock = new Mock<ICoreApiClient>();
+        coreMock.Setup(c => c.SignUpAsync(
+                It.IsAny<SignUpRequest>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new SuperTokensException("SuperTokens Core returned status EMAIL_ALREADY_EXISTS_ERROR: "));
+
+        var server = CreateServer(coreMock);
+        var client = server.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/auth/signup", new
+        {
+            formFields = new[]
+            {
+                new { id = "email", value = "a@b.com" },
+                new { id = "password", value = "secret" }
+            }
+        });
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("\"status\":\"FIELD_ERROR\"", body);
+        Assert.Contains("already exists", body);
     }
 
     [Fact]
@@ -178,20 +319,39 @@ public class SuperTokensApiMiddlewareTests
     public async Task Cors_ActualRequest_AddsCorsHeaders()
     {
         var coreMock = new Mock<ICoreApiClient>();
-        coreMock.Setup(c => c.ProxyToCoreAsync(
-                It.IsAny<string>(),
-                It.IsAny<string>(),
-                It.IsAny<string>(),
-                It.IsAny<string>(),
+        coreMock.Setup(c => c.SignUpAsync(
+                It.IsAny<SignUpRequest>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(CreateProxyResponse(HttpStatusCode.OK, "{\"status\":\"OK\"}"));
+            .ReturnsAsync(new SignUpResponse
+            {
+                Status = "OK",
+                User = new UserResponse { Id = "user-id", Email = "a@b.com", TimeJoined = 1234567890 }
+            });
+
+        coreMock.Setup(c => c.CreateSessionAsync(
+                It.IsAny<CreateSessionRequest>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CreateOrRefreshAPIResponse
+            {
+                Status = "OK",
+                Session = new SessionStruct { Handle = "handle", UserId = "user-id", UserDataInJWT = new() },
+                AccessToken = new TokenInfo { Token = "access-token", Expiry = DateTimeOffset.UtcNow.AddMinutes(15).ToUnixTimeMilliseconds() },
+                RefreshToken = new TokenInfo { Token = "refresh-token", Expiry = DateTimeOffset.UtcNow.AddDays(30).ToUnixTimeMilliseconds() }
+            });
 
         var server = CreateServer(coreMock);
         var client = server.CreateClient();
 
         var request = new HttpRequestMessage(HttpMethod.Post, "/auth/signup")
         {
-            Content = JsonContent.Create(new { email = "a@b.com", password = "secret" })
+            Content = JsonContent.Create(new
+            {
+                formFields = new[]
+                {
+                    new { id = "email", value = "a@b.com" },
+                    new { id = "password", value = "secret" }
+                }
+            })
         };
         request.Headers.Add("Origin", "http://localhost:3000");
 

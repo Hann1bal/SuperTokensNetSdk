@@ -4,6 +4,23 @@ All notable changes to SuperTokensSDK.Net will be documented in this file.
 
 ## [Unreleased]
 
+## [2.7.4] - 2026-07-10
+
+### Fixed
+- `SuperTokensApiMiddleware` now handles `/auth/signup` and `/auth/signin` end-to-end instead of proxying them to Core.
+  - Parses FDI `formFields` array and converts it to CDI `email`/`password`.
+  - Calls `EmailPasswordRecipe.SignUpAsync`/`SignInAsync`, then creates a session via `SessionRecipe.CreateSessionAsync`.
+  - Attaches `sAccessToken`, `sRefreshToken`, and `sAntiCsrf` cookies with correct attributes (HttpOnly, Secure, SameSite, paths).
+  - Returns FDI-shaped responses: `OK`, `FIELD_ERROR`, and `WRONG_CREDENTIALS_ERROR`.
+- Removed `/auth/signup` and `/auth/signin` from the generic proxy route map.
+- Updated `SuperTokensApiMiddlewareTests` with FDI signup/signin coverage, including missing fields, wrong credentials, and email-already-exists cases.
+
+## [2.7.3] - 2026-07-10
+
+### Fixed
+- `SuperTokensApiMiddleware` forwards `Set-Cookie` headers from SuperTokens Core responses to the browser.
+- Added `SuperTokensOptions.AllowedOrigins` for explicit CORS origin allowlist.
+
 ## [2.6.0] - 2026-07-05
 
 ### Security
