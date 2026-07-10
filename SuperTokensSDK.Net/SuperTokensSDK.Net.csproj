@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <PackageId>SuperTokensSDK.Net</PackageId>
-    <Version>2.7.2</Version>
+    <Version>2.7.3</Version>
     <Authors>Hann1bal</Authors>
     <Company>Hann1bal</Company>
     <Description>SuperTokens integration for ASP.NET Core: CDI client, auth handler, recipes, MCP gateway</Description>

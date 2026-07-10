@@ -105,6 +105,27 @@ public class SuperTokensApiMiddleware
 
             context.Response.StatusCode = (int)response.StatusCode;
             context.Response.ContentType = "application/json";
+
+            // Forward Set-Cookie headers (and any other response headers) from SuperTokens Core.
+            // Without this, sAccessToken / sRefreshToken never reach the browser.
+            foreach (var header in response.Headers)
+            {
+                if (header.Key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (var value in header.Value)
+                    {
+                        context.Response.Headers.Append("Set-Cookie", value);
+                    }
+                }
+                else if (!context.Response.Headers.ContainsKey(header.Key) &&
+                         !header.Key.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase) &&
+                         !header.Key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase) &&
+                         !header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
+                {
+                    context.Response.Headers.Append(header.Key, header.Value.ToArray());
+                }
+            }
+
             await context.Response.WriteAsync(await response.Content.ReadAsStringAsync(context.RequestAborted));
             return;
         }
