@@ -4,6 +4,18 @@ All notable changes to SuperTokensSDK.Net will be documented in this file.
 
 ## [Unreleased]
 
+## [2.7.5] - 2026-07-10
+
+### Fixed
+- `SuperTokensApiMiddleware` now handles `POST /auth/session/refresh` end-to-end instead of proxying it with an empty body.
+  - Reads `sRefreshToken` from the request cookie and `sAntiCsrf` from cookie/header.
+  - Returns `401 { "status": "UNAUTHORISED" }` when the refresh token is missing, preventing pre-login infinite refresh loops.
+  - Calls `SessionRecipe.RefreshSessionAsync`, which builds the CDI body exactly like the official Go SDK (`refreshToken`, `enableAntiCsrf`, `useDynamicSigningKey`).
+  - Attaches new `sAccessToken`, `sRefreshToken`, and `sAntiCsrf` cookies from the refreshed session.
+  - Sets the `front-token` response header used by `supertokens-web-js` to track session info on the client.
+- Updated `Access-Control-Expose-Headers` to include `front-token`.
+- Updated `SuperTokensApiMiddlewareTests` to cover successful refresh, missing refresh token, and missing anti-CSRF token scenarios.
+
 ## [2.7.4] - 2026-07-10
 
 ### Fixed

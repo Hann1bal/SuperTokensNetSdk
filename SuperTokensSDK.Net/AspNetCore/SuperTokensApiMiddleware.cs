@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -38,8 +39,7 @@ public class SuperTokensApiMiddleware
         { ("/auth/reset-password", "POST"), ("/recipe/user/password/reset", "emailpassword") },
         { ("/auth/signup/email/exists", "GET"), ("/recipe/signup/email/exists", "emailpassword") },
 
-        // Session
-        { ("/auth/session/refresh", "POST"), ("/recipe/session/refresh", "session") },
+        // Session (refresh is handled end-to-end below)
         { ("/auth/signout", "POST"), ("/recipe/session/revoke", "session") },
         { ("/auth/session", "GET"), ("/recipe/session", "session") },
 
@@ -106,6 +106,12 @@ public class SuperTokensApiMiddleware
         if (path == "/auth/signin" && HttpMethods.IsPost(context.Request.Method))
         {
             await HandleSignInAsync(context);
+            return;
+        }
+
+        if (path == "/auth/session/refresh" && HttpMethods.IsPost(context.Request.Method))
+        {
+            await HandleRefreshAsync(context);
             return;
         }
 
@@ -184,7 +190,7 @@ public class SuperTokensApiMiddleware
                 accessTokenPayload: new Dictionary<string, object>(),
                 cancellationToken: context.RequestAborted);
 
-            await AttachSessionCookiesAsync(context, container);
+            AttachSessionCookies(context, container);
             await WriteJsonAsync(context, 200, new { status = "OK", user = new { user.Id, user.Email, user.TimeJoined } });
         }
         catch (SuperTokensException ex) when (IsCoreStatus(ex, "EMAIL_ALREADY_EXISTS_ERROR"))
@@ -229,7 +235,7 @@ public class SuperTokensApiMiddleware
                 accessTokenPayload: new Dictionary<string, object>(),
                 cancellationToken: context.RequestAborted);
 
-            await AttachSessionCookiesAsync(context, container);
+            AttachSessionCookies(context, container);
             await WriteJsonAsync(context, 200, new { status = "OK", user = new { user.Id, user.Email, user.TimeJoined } });
         }
         catch (SuperTokensException ex) when (IsCoreStatus(ex, "WRONG_CREDENTIALS_ERROR"))
@@ -241,6 +247,49 @@ public class SuperTokensApiMiddleware
         {
             _logger.LogWarning(ex, "Sign-in failed for {Email}", email);
             await WriteJsonAsync(context, 401, new { status = "WRONG_CREDENTIALS_ERROR" });
+        }
+    }
+
+    private async Task HandleRefreshAsync(HttpContext context)
+    {
+        var refreshToken = context.Request.Cookies[_options.RefreshTokenCookieName];
+        if (string.IsNullOrWhiteSpace(refreshToken))
+        {
+            _logger.LogDebug("Session refresh rejected: no refresh token cookie.");
+            await WriteJsonAsync(context, 401, new { status = "UNAUTHORISED", message = "Refresh token is missing." });
+            return;
+        }
+
+        string? antiCsrfToken = null;
+        if (_options.EnableAntiCsrf)
+        {
+            antiCsrfToken = context.Request.Headers[Core.Constants.HeaderNames.AntiCsrf].FirstOrDefault()
+                ?? context.Request.Cookies[_options.AntiCsrfCookieName];
+
+            if (string.IsNullOrWhiteSpace(antiCsrfToken))
+            {
+                _logger.LogDebug("Session refresh rejected: anti-CSRF token required but missing.");
+                await WriteJsonAsync(context, 401, new { status = "UNAUTHORISED", message = "Anti-CSRF token is missing." });
+                return;
+            }
+        }
+
+        var sessionRecipe = context.RequestServices.GetRequiredService<SessionRecipe>();
+
+        try
+        {
+            var container = await sessionRecipe.RefreshSessionAsync(
+                refreshToken,
+                antiCsrfToken,
+                context.RequestAborted);
+
+            AttachSessionCookies(context, container);
+            await WriteJsonAsync(context, 200, new { status = "OK" });
+        }
+        catch (SuperTokensException ex)
+        {
+            _logger.LogWarning(ex, "Session refresh failed.");
+            await WriteJsonAsync(context, 401, new { status = "UNAUTHORISED", message = ex.Message });
         }
     }
 
@@ -296,11 +345,9 @@ public class SuperTokensApiMiddleware
         return (email, password, Array.Empty<object>());
     }
 
-    private async Task AttachSessionCookiesAsync(HttpContext context, SessionContainer container)
+    private void AttachSessionCookies(HttpContext context, SessionContainer container)
     {
-        var options = context.RequestServices.GetRequiredService<IOptions<SuperTokensOptions>>().Value;
-
-        var secure = options.UseSecureCookies;
+        var secure = _options.UseSecureCookies;
         var sameSite = SameSiteMode.Lax;
 
         var accessCookieOptions = new CookieOptions
@@ -323,15 +370,15 @@ public class SuperTokensApiMiddleware
 
         if (!string.IsNullOrEmpty(container.AccessToken))
         {
-            context.Response.Cookies.Append(options.AccessTokenCookieName, container.AccessToken, accessCookieOptions);
+            context.Response.Cookies.Append(_options.AccessTokenCookieName, container.AccessToken, accessCookieOptions);
         }
 
         if (!string.IsNullOrEmpty(container.RefreshToken))
         {
-            context.Response.Cookies.Append(options.RefreshTokenCookieName, container.RefreshToken, refreshCookieOptions);
+            context.Response.Cookies.Append(_options.RefreshTokenCookieName, container.RefreshToken, refreshCookieOptions);
         }
 
-        if (options.EnableAntiCsrf && !string.IsNullOrEmpty(container.AntiCsrfToken))
+        if (_options.EnableAntiCsrf && !string.IsNullOrEmpty(container.AntiCsrfToken))
         {
             var antiCsrfOptions = new CookieOptions
             {
@@ -341,10 +388,35 @@ public class SuperTokensApiMiddleware
                 Path = "/",
                 Expires = container.RefreshTokenExpiry
             };
-            context.Response.Cookies.Append(options.AntiCsrfCookieName, container.AntiCsrfToken, antiCsrfOptions);
+            context.Response.Cookies.Append(_options.AntiCsrfCookieName, container.AntiCsrfToken, antiCsrfOptions);
         }
 
-        await Task.CompletedTask;
+        var frontToken = BuildFrontToken(container);
+        if (!string.IsNullOrEmpty(frontToken))
+        {
+            context.Response.Headers[Core.Constants.HeaderNames.FrontToken] = frontToken;
+        }
+    }
+
+    private string? BuildFrontToken(SessionContainer container)
+    {
+        if (string.IsNullOrEmpty(container.AccessToken) ||
+            string.IsNullOrEmpty(container.UserId) ||
+            container.AccessTokenExpiry == DateTime.MinValue)
+        {
+            return null;
+        }
+
+        var expiryMs = new DateTimeOffset(container.AccessTokenExpiry).ToUnixTimeMilliseconds();
+        var payload = new
+        {
+            uid = container.UserId,
+            ate = expiryMs,
+            up = container.UserDataInJwt
+        };
+
+        var json = JsonSerializer.Serialize(payload, FdiJsonOptions);
+        return Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
     }
 
     private static async Task WriteJsonAsync(HttpContext context, int statusCode, object value)
@@ -373,7 +445,7 @@ public class SuperTokensApiMiddleware
                 {
                     context.Response.Headers.AccessControlAllowOrigin = origin;
                     context.Response.Headers.AccessControlAllowCredentials = "true";
-                    context.Response.Headers.AccessControlExposeHeaders = "rid, fdi-version, anti-csrf";
+                    context.Response.Headers.AccessControlExposeHeaders = "rid, fdi-version, anti-csrf, front-token";
                 }
                 else
                 {
@@ -390,7 +462,7 @@ public class SuperTokensApiMiddleware
                     origin);
                 context.Response.Headers.AccessControlAllowOrigin = origin;
                 context.Response.Headers.AccessControlAllowCredentials = "true";
-                context.Response.Headers.AccessControlExposeHeaders = "rid, fdi-version, anti-csrf";
+                context.Response.Headers.AccessControlExposeHeaders = "rid, fdi-version, anti-csrf, front-token";
             }
         }
 

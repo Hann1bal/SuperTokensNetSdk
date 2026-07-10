@@ -243,29 +243,71 @@ public class SuperTokensApiMiddlewareTests
     }
 
     [Fact]
-    public async Task SessionRefreshRoute_ProxiesToRecipeSessionRefresh()
+    public async Task SessionRefreshRoute_WithCookies_RefreshesSessionAndSetsCookies()
     {
         var coreMock = new Mock<ICoreApiClient>();
-        coreMock.Setup(c => c.ProxyToCoreAsync(
-                "POST",
-                "/recipe/session/refresh",
-                It.IsAny<string>(),
-                "session",
+        coreMock.Setup(c => c.RefreshSessionAsync(
+                It.Is<RefreshSessionRequest>(r => r.RefreshToken == "refresh-token" && r.AntiCsrfToken == "anti-csrf-token"),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(CreateProxyResponse(HttpStatusCode.OK, "{\"status\":\"OK\"}"));
+            .ReturnsAsync(new CreateOrRefreshAPIResponse
+            {
+                Status = "OK",
+                Session = new SessionStruct { Handle = "new-handle", UserId = "user-id", UserDataInJWT = new() },
+                AccessToken = new TokenInfo { Token = "new-access-token", Expiry = DateTimeOffset.UtcNow.AddMinutes(15).ToUnixTimeMilliseconds() },
+                RefreshToken = new TokenInfo { Token = "new-refresh-token", Expiry = DateTimeOffset.UtcNow.AddDays(30).ToUnixTimeMilliseconds() },
+                AntiCsrfToken = "new-anti-csrf-token"
+            });
 
         var server = CreateServer(coreMock);
         var client = server.CreateClient();
 
-        var response = await client.PostAsJsonAsync("/auth/session/refresh", new { refreshToken = "rt" });
+        var request = new HttpRequestMessage(HttpMethod.Post, "/auth/session/refresh");
+        request.Headers.Add("Cookie", "sRefreshToken=refresh-token; sAntiCsrf=anti-csrf-token");
+
+        var response = await client.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+        var cookies = response.Headers.GetValues("Set-Cookie").ToList();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        coreMock.Verify(c => c.ProxyToCoreAsync(
-            "POST",
-            "/recipe/session/refresh",
-            It.IsAny<string>(),
-            "session",
-            It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Contains("\"status\":\"OK\"", body);
+        Assert.Contains(cookies, c => c.StartsWith("sAccessToken=new-access-token"));
+        Assert.Contains(cookies, c => c.StartsWith("sRefreshToken=new-refresh-token"));
+        Assert.Contains(cookies, c => c.StartsWith("sAntiCsrf=new-anti-csrf-token"));
+        Assert.True(response.Headers.Contains("front-token"));
+        coreMock.Verify(c => c.ProxyToCoreAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SessionRefreshRoute_MissingRefreshToken_ReturnsUnauthorised()
+    {
+        var coreMock = new Mock<ICoreApiClient>();
+        var server = CreateServer(coreMock);
+        var client = server.CreateClient();
+
+        var response = await client.PostAsync("/auth/session/refresh", null);
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Contains("\"status\":\"UNAUTHORISED\"", body);
+        coreMock.Verify(c => c.RefreshSessionAsync(It.IsAny<RefreshSessionRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SessionRefreshRoute_MissingAntiCsrfToken_ReturnsUnauthorised()
+    {
+        var coreMock = new Mock<ICoreApiClient>();
+        var server = CreateServer(coreMock);
+        var client = server.CreateClient();
+
+        var request = new HttpRequestMessage(HttpMethod.Post, "/auth/session/refresh");
+        request.Headers.Add("Cookie", "sRefreshToken=refresh-token");
+
+        var response = await client.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Contains("\"status\":\"UNAUTHORISED\"", body);
+        coreMock.Verify(c => c.RefreshSessionAsync(It.IsAny<RefreshSessionRequest>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -360,7 +402,7 @@ public class SuperTokensApiMiddlewareTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("http://localhost:3000", response.Headers.GetValues("Access-Control-Allow-Origin").Single());
         Assert.Contains("true", response.Headers.GetValues("Access-Control-Allow-Credentials"));
-        Assert.Contains("rid, fdi-version, anti-csrf", response.Headers.GetValues("Access-Control-Expose-Headers"));
+        Assert.Contains("rid, fdi-version, anti-csrf, front-token", response.Headers.GetValues("Access-Control-Expose-Headers"));
     }
 
     [Fact]
